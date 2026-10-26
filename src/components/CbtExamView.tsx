@@ -16,9 +16,11 @@ import {
   Lock,
   Coffee,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  Cloud
 } from 'lucide-react';
 import { Question, StudentProfile, AppSettings } from '../types';
+import { db, doc, setDoc } from '../firebase';
 
 interface CbtExamViewProps {
   questions: Question[];
@@ -130,7 +132,7 @@ export const CbtExamView: React.FC<CbtExamViewProps> = ({
     localStorage.setItem('tka_current_index', currentIndex.toString());
   }, [sessionStage, currentIndex]);
 
-  // Persist answers and flagged
+  // Persist answers and flagged locally
   useEffect(() => {
     localStorage.setItem('tka_cbt_answers', JSON.stringify(answers));
   }, [answers]);
@@ -138,6 +140,35 @@ export const CbtExamView: React.FC<CbtExamViewProps> = ({
   useEffect(() => {
     localStorage.setItem('tka_cbt_flagged', JSON.stringify(flagged));
   }, [flagged]);
+
+  // REAL-TIME AUTO-SAVE TO FIREBASE BACKEND
+  const [cloudSyncedTime, setCloudSyncedTime] = useState<string>('');
+  useEffect(() => {
+    if (!profile?.studentPhone) return;
+    const sanitizedId = `sess_${profile.studentPhone.replace(/[^a-zA-Z0-9]/g, '') || 'guest'}`;
+
+    const timeout = setTimeout(async () => {
+      try {
+        await setDoc(doc(db, 'active_sessions', sanitizedId), {
+          studentPhone: profile.studentPhone,
+          studentName: profile.fullName,
+          schoolOrigin: profile.schoolOrigin,
+          packetType: settings.activePacketType,
+          answers,
+          flagged,
+          sessionStage,
+          currentIndex,
+          answeredCount: Object.keys(answers).length,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+        setCloudSyncedTime(new Date().toLocaleTimeString('id-ID'));
+      } catch (err) {
+        // Silently handled in background
+      }
+    }, 1000);
+
+    return () => clearTimeout(timeout);
+  }, [answers, flagged, sessionStage, currentIndex, profile, settings.activePacketType]);
 
   // TIMER FOR SESSION 1 (BAHASA INDONESIA)
   useEffect(() => {
@@ -369,6 +400,24 @@ export const CbtExamView: React.FC<CbtExamViewProps> = ({
   const session2Unanswered = 30 - session2Answered;
   const session2Flagged = questions.slice(30, 60).filter(q => !!flagged[q.id]).length;
 
+  // Overall & Session Question Stats for Progress Bar and Visual Indicators
+  const totalQuestions = questions.length || 60;
+  const totalAnswered = questions.filter(q => !!answers[q.id]).length;
+  const totalFlagged = questions.filter(q => !!flagged[q.id]).length;
+  const totalUnanswered = Math.max(0, totalQuestions - totalAnswered);
+  const overallPercentage = Math.round((totalAnswered / totalQuestions) * 100);
+
+  const isSession1 = sessionStage === 'session1_indonesian';
+  const activeSessionTotal = 30;
+  const activeSessionAnswered = isSession1 ? session1Answered : session2Answered;
+  const activeSessionUnanswered = isSession1 ? session1Unanswered : session2Unanswered;
+  const activeSessionFlagged = isSession1 ? session1Flagged : session2Flagged;
+  const activeSessionPercentage = Math.round((activeSessionAnswered / activeSessionTotal) * 100);
+
+  const currentIsAnswered = !!answers[currentQuestion?.id];
+  const currentAnswer = currentQuestion ? answers[currentQuestion.id] : undefined;
+  const currentIsFlagged = !!flagged[currentQuestion?.id];
+
   // ==========================================
   // BREAK VIEW (JEDA ISTIRAHAT 2 MENIT)
   // ==========================================
@@ -462,9 +511,15 @@ export const CbtExamView: React.FC<CbtExamViewProps> = ({
                   Paket {settings.activePacketType}
                 </span>
               </div>
-              <h1 className="text-xs sm:text-base font-bold truncate max-w-[120px] sm:max-w-xs md:max-w-md">
-                {profile.fullName} <span className="hidden sm:inline font-normal text-slate-300">({profile.schoolOrigin})</span>
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xs sm:text-base font-bold truncate max-w-[120px] sm:max-w-xs md:max-w-md">
+                  {profile.fullName} <span className="hidden sm:inline font-normal text-slate-300">({profile.schoolOrigin})</span>
+                </h1>
+                <div className="hidden lg:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-400/15 border border-cyan-400/30 text-[10px] text-cyan-200">
+                  <Cloud className="w-3 h-3 text-cyan-300 animate-pulse" />
+                  <span>Cloud Realtime {cloudSyncedTime ? `(${cloudSyncedTime})` : 'Aktif'}</span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -506,16 +561,112 @@ export const CbtExamView: React.FC<CbtExamViewProps> = ({
         </div>
       </header>
 
-      {/* 2. SUB-HEADER KETERANGAN SOAL & ZOOM FONT (VISIBLE ON ALL SCREENS) */}
-      <div className="bg-white border-b border-slate-200 px-3 sm:px-6 py-2 shadow-2xs">
+      {/* 2. PROGRESS BAR & VISUAL COMPLETION INDICATOR BANNER */}
+      <section 
+        aria-label="Indikator Progres Pengerjaan Soal" 
+        className="bg-white border-b border-slate-200 px-3 sm:px-6 py-2.5 shadow-xs sticky top-[48px] sm:top-[56px] z-20"
+      >
+        <div className="max-w-7xl mx-auto space-y-2">
+          {/* Header row: Progress label and detailed badge counters */}
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            {/* Left: Active session progress and ratio */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-extrabold text-slate-800 flex items-center gap-1.5 text-xs sm:text-sm">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>Progres {isSession1 ? 'Sesi 1 (Bahasa Indonesia)' : 'Sesi 2 (Matematika)'}:</span>
+              </span>
+
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-blue-50 border border-blue-200 font-black text-blue-800 text-xs sm:text-sm">
+                <span>{activeSessionAnswered}</span>
+                <span className="text-slate-400 font-normal">/</span>
+                <span>{activeSessionTotal} Soal Terjawab</span>
+                <span className="text-blue-600 font-bold ml-0.5">({activeSessionPercentage}%)</span>
+              </div>
+            </div>
+
+            {/* Right: Visual indicator badges */}
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap text-[11px] sm:text-xs font-semibold">
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/80 shadow-2xs">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 animate-pulse"></span>
+                <span>{activeSessionAnswered} Dijawab</span>
+              </span>
+
+              {activeSessionFlagged > 0 && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-300 shadow-2xs">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0"></span>
+                  <span>{activeSessionFlagged} Ragu</span>
+                </span>
+              )}
+
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 border border-slate-200 shadow-2xs">
+                <span className="w-2 h-2 rounded-full bg-slate-400 shrink-0"></span>
+                <span>{activeSessionUnanswered} Belum</span>
+              </span>
+
+              <span className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-900 border border-indigo-200 font-bold text-[11px]">
+                <span>Total Ujian:</span>
+                <strong className="text-indigo-700">{totalAnswered}/{totalQuestions}</strong>
+                <span className="text-indigo-500">({overallPercentage}%)</span>
+              </span>
+            </div>
+          </div>
+
+          {/* Dual Visual Progress Bar */}
+          <div className="space-y-1">
+            <div className="w-full bg-slate-100 h-2 sm:h-2.5 rounded-full overflow-hidden border border-slate-200/90 relative shadow-inner">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ease-out relative ${
+                  isSession1
+                    ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-500'
+                    : 'bg-gradient-to-r from-cyan-600 via-teal-600 to-emerald-500'
+                }`}
+                style={{ width: `${activeSessionPercentage}%` }}
+                role="progressbar"
+                aria-valuenow={activeSessionAnswered}
+                aria-valuemin={0}
+                aria-valuemax={activeSessionTotal}
+              >
+                <div className="absolute inset-0 bg-white/20 animate-pulse" />
+              </div>
+            </div>
+
+            {/* Mobile/Tablet overall indicator caption */}
+            <div className="flex lg:hidden items-center justify-between text-[10px] text-slate-500 font-medium px-0.5">
+              <span>{activeSessionPercentage}% selesai di sesi ini</span>
+              <span>Total selesai: <strong className="text-slate-800">{totalAnswered}</strong> dari {totalQuestions} soal</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 3. SUB-HEADER KETERANGAN SOAL & ZOOM FONT (VISIBLE ON ALL SCREENS) */}
+      <div className="bg-slate-50 border-b border-slate-200/80 px-3 sm:px-6 py-2 shadow-2xs">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
             <span className="px-2.5 sm:px-3 py-1 rounded-lg bg-blue-700 text-white font-extrabold text-xs sm:text-sm shadow-xs shrink-0">
               SOAL {currentQuestion.number}
             </span>
-            <span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 shrink-0">
+            <span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-white text-slate-700 border border-slate-200 shrink-0">
               {currentQuestion.subject === 'indonesian' ? 'B. Indonesia' : 'Matematika'}
             </span>
+
+            {/* Visual Indicator of Current Question Status */}
+            {currentIsFlagged ? (
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
+                <HelpCircle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                <span>Ragu-ragu {currentIsAnswered ? `(Opsi ${currentAnswer})` : '(Belum Dijawab)'}</span>
+              </span>
+            ) : currentIsAnswered ? (
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>Terjawab: Opsi {currentAnswer}</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-200/80 text-slate-600 border border-slate-300">
+                <span>Belum Dijawab</span>
+              </span>
+            )}
+
             <span className="hidden md:inline-block text-xs text-slate-500 font-medium truncate max-w-xs">
               &bull; Sub-Materi: <strong className="text-slate-700">{currentQuestion.subTopic}</strong>
             </span>
@@ -523,37 +674,29 @@ export const CbtExamView: React.FC<CbtExamViewProps> = ({
 
           <div className="flex items-center gap-3">
             {/* Universal Font Size Zoom Control for Phone, Tablet & PC */}
-            <div className="flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5 border border-slate-200 text-xs">
+            <div className="flex items-center gap-0.5 bg-white rounded-lg p-0.5 border border-slate-200 text-xs shadow-2xs">
               <span className="text-[10px] text-slate-500 font-bold px-1.5 hidden sm:inline">Ukuran Teks:</span>
               <button
                 onClick={() => setFontSize('normal')}
-                className={`px-2 py-0.5 rounded font-bold transition-colors cursor-pointer ${fontSize === 'normal' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}
+                className={`px-2 py-0.5 rounded font-bold transition-colors cursor-pointer ${fontSize === 'normal' ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'text-slate-600 hover:text-slate-900'}`}
                 title="Teks Ukuran Standar"
               >
                 A
               </button>
               <button
                 onClick={() => setFontSize('large')}
-                className={`px-2 py-0.5 rounded font-bold text-xs transition-colors cursor-pointer ${fontSize === 'large' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}
+                className={`px-2 py-0.5 rounded font-bold text-xs transition-colors cursor-pointer ${fontSize === 'large' ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'text-slate-600 hover:text-slate-900'}`}
                 title="Teks Ukuran Sedang (+)"
               >
                 A+
               </button>
               <button
                 onClick={() => setFontSize('extralarge')}
-                className={`px-2 py-0.5 rounded font-bold text-sm transition-colors cursor-pointer ${fontSize === 'extralarge' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}
+                className={`px-2 py-0.5 rounded font-bold text-sm transition-colors cursor-pointer ${fontSize === 'extralarge' ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'text-slate-600 hover:text-slate-900'}`}
                 title="Teks Ukuran Besar (++)"
               >
                 A++
               </button>
-            </div>
-
-            <div className="text-[11px] sm:text-xs text-slate-500 shrink-0">
-              {sessionStage === 'session1_indonesian' ? (
-                <span>Terjawab: <strong className="text-blue-700 font-bold">{session1Answered}</strong>/30</span>
-              ) : (
-                <span>Terjawab: <strong className="text-cyan-700 font-bold">{session2Answered}</strong>/30</span>
-              )}
             </div>
           </div>
         </div>
@@ -636,19 +779,30 @@ export const CbtExamView: React.FC<CbtExamViewProps> = ({
               </span>
             </div>
 
-            {/* Legend */}
-            <div className="grid grid-cols-3 gap-2 text-[11px] font-semibold text-slate-600 bg-slate-50 p-2 rounded-xl border border-slate-200">
-              <div className="flex items-center gap-1">
-                <span className="w-3.5 h-3.5 rounded bg-white border border-slate-300"></span>
-                <span>Belum</span>
+            {/* Progress Visual Card in Sidebar */}
+            <div className="bg-gradient-to-br from-slate-50 to-blue-50/60 p-3.5 rounded-xl border border-slate-200/90 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-slate-700 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-blue-700" />
+                  <span>Progres Pengerjaan</span>
+                </span>
+                <span className="font-black text-blue-700 bg-white px-2 py-0.5 rounded-md border border-slate-200 text-[11px]">
+                  {activeSessionAnswered} / {activeSessionTotal}
+                </span>
               </div>
-              <div className="flex items-center gap-1">
-                <span className="w-3.5 h-3.5 rounded bg-blue-700 text-white flex items-center justify-center text-[8px] font-bold">✓</span>
-                <span>Dijawab</span>
+              <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden shadow-inner">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    isSession1
+                      ? 'bg-gradient-to-r from-blue-600 to-cyan-500'
+                      : 'bg-gradient-to-r from-cyan-600 to-emerald-500'
+                  }`}
+                  style={{ width: `${activeSessionPercentage}%` }}
+                />
               </div>
-              <div className="flex items-center gap-1">
-                <span className="w-3.5 h-3.5 rounded bg-amber-400 text-slate-900 flex items-center justify-center text-[8px] font-bold">?</span>
-                <span>Ragu</span>
+              <div className="flex items-center justify-between text-[10px] text-slate-500 font-medium">
+                <span>{activeSessionPercentage}% sesi selesai</span>
+                <span>Total: <strong className="text-slate-800">{totalAnswered}/{totalQuestions}</strong></span>
               </div>
             </div>
 
@@ -866,6 +1020,33 @@ export const CbtExamView: React.FC<CbtExamViewProps> = ({
               <div className="flex items-center gap-1">
                 <span className="w-3.5 h-3.5 rounded bg-amber-400 text-slate-950 flex items-center justify-center text-[8px] font-bold">?</span>
                 <span>Ragu</span>
+              </div>
+            </div>
+
+            {/* Visual Progress Bar in Drawer */}
+            <div className="px-4 py-3 bg-gradient-to-r from-blue-50/70 to-indigo-50/50 border-b border-slate-200 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-extrabold text-slate-800 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>Progres {isSession1 ? 'Sesi 1 (B. Indonesia)' : 'Sesi 2 (Matematika)'}</span>
+                </span>
+                <span className="font-black text-blue-800 bg-white px-2 py-0.5 rounded-md border border-slate-200 shadow-2xs">
+                  {activeSessionAnswered} / {activeSessionTotal} ({activeSessionPercentage}%)
+                </span>
+              </div>
+              <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden shadow-inner">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    isSession1
+                      ? 'bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-500'
+                      : 'bg-gradient-to-r from-cyan-600 via-teal-600 to-emerald-500'
+                  }`}
+                  style={{ width: `${activeSessionPercentage}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-slate-600 font-medium">
+                <span>Total Ujian: <strong className="text-slate-900">{totalAnswered}/{totalQuestions} Soal</strong></span>
+                <span>Ragu: <strong className="text-amber-700">{activeSessionFlagged}</strong> &bull; Belum: <strong className="text-slate-700">{activeSessionUnanswered}</strong></span>
               </div>
             </div>
 

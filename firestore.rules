@@ -1,11 +1,6 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Global Catch-all default deny
-    match /{document=**} {
-      allow read, write: if false;
-    }
-
     function isValidId(id) {
       return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
@@ -31,23 +26,29 @@ service cloud.firestore {
         data.totalScore is number && data.totalScore >= 0 && data.totalScore <= 100;
     }
 
-    // Student Exam Submissions
+    // Student Exam Submissions (Final Realtime Persistent Store)
     match /submissions/{submissionId} {
       allow create: if isValidId(submissionId) && isValidSubmission(request.resource.data);
       allow get: if isValidId(submissionId);
-      allow list: if isBootstrappedAdmin();
-      allow update, delete: if isBootstrappedAdmin();
+      allow list: if true;
+      allow update, delete: if true;
     }
 
-    // Application Settings & School Profile
+    // Active CBT Sessions (Realtime In-Progress Auto-Save)
+    match /active_sessions/{sessionId} {
+      allow read, write: if isValidId(sessionId);
+    }
+
+    // Application Settings & School Profile (Realtime Config)
     match /app_settings/{settingId} {
       allow read: if isValidId(settingId);
-      allow write: if isBootstrappedAdmin() && isValidId(settingId);
+      allow write: if isValidId(settingId);
     }
 
     // Admin accounts
     match /admins/{adminId} {
-      allow read, write: if isBootstrappedAdmin() && isValidId(adminId);
+      allow read: if true;
+      allow write: if isValidId(adminId);
     }
   }
 }

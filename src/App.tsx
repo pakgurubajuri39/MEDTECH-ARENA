@@ -25,6 +25,7 @@ import {
   getDocs, 
   collection, 
   deleteDoc, 
+  onSnapshot,
   handleFirestoreError, 
   OperationType 
 } from './firebase';
@@ -102,42 +103,89 @@ export default function App() {
 
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
 
-  // Sync settings and submissions with Firestore on boot
+  // Real-time Firestore synchronization status
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState<boolean>(true);
+  const [lastSyncTime, setLastSyncTime] = useState<string>(new Date().toLocaleTimeString('id-ID'));
+
+  // REAL-TIME FIRESTORE LISTENERS FOR SETTINGS, SUBMISSIONS, AND ADMIN ACCOUNTS
   useEffect(() => {
-    async function loadDataFromFirestore() {
-      // 1. Fetch App Settings
-      try {
-        const settingsSnap = await getDoc(doc(db, 'app_settings', 'config'));
-        if (settingsSnap.exists()) {
-          const remoteSettings = settingsSnap.data() as AppSettings;
+    // 1. Real-time App Settings Listener (Synchronizes across all devices instantly)
+    const unsubscribeSettings = onSnapshot(
+      doc(db, 'app_settings', 'config'),
+      (snapshot) => {
+        if (snapshot.exists()) {
+          const remoteSettings = snapshot.data() as AppSettings;
           setSettings(prev => ({ ...prev, ...remoteSettings }));
+          localStorage.setItem('tka_app_settings', JSON.stringify(remoteSettings));
+          setIsRealtimeConnected(true);
+          setLastSyncTime(new Date().toLocaleTimeString('id-ID'));
+          console.log('⚡ [Realtime Firebase] App settings synced:', remoteSettings);
         }
-      } catch (err) {
+      },
+      (err) => {
+        setIsRealtimeConnected(false);
         handleFirestoreError(err, OperationType.GET, 'app_settings/config');
       }
+    );
 
-      // 2. Fetch Submissions
-      try {
-        const subSnap = await getDocs(collection(db, 'submissions'));
-        if (!subSnap.empty) {
-          const remoteList: ExamSubmission[] = [];
-          subSnap.forEach(d => {
-            remoteList.push({ id: d.id, ...d.data() } as ExamSubmission);
-          });
-          // Merge with initialMockSubmissions ensuring unique IDs
-          setSubmissions(prev => {
-            const combinedMap = new Map<string, ExamSubmission>();
-            initialMockSubmissions.forEach(m => combinedMap.set(m.id, m));
-            remoteList.forEach(r => combinedMap.set(r.id, r));
-            return Array.from(combinedMap.values());
-          });
-        }
-      } catch (err) {
+    // 2. Real-time Submissions Listener (Live exam submissions appear instantly)
+    const unsubscribeSubmissions = onSnapshot(
+      collection(db, 'submissions'),
+      (snapshot) => {
+        const remoteList: ExamSubmission[] = [];
+        snapshot.forEach(d => {
+          remoteList.push({ id: d.id, ...d.data() } as ExamSubmission);
+        });
+
+        setSubmissions(prev => {
+          const combinedMap = new Map<string, ExamSubmission>();
+          initialMockSubmissions.forEach(m => combinedMap.set(m.id, m));
+          remoteList.forEach(r => combinedMap.set(r.id, r));
+          const updated = Array.from(combinedMap.values());
+          localStorage.setItem('tka_all_submissions', JSON.stringify(updated));
+          return updated;
+        });
+
+        setIsRealtimeConnected(true);
+        setLastSyncTime(new Date().toLocaleTimeString('id-ID'));
+        console.log(`⚡ [Realtime Firebase] ${remoteList.length} submissions live updated.`);
+      },
+      (err) => {
+        setIsRealtimeConnected(false);
         handleFirestoreError(err, OperationType.LIST, 'submissions');
       }
-    }
+    );
 
-    loadDataFromFirestore();
+    // 3. Real-time Admin Accounts Listener (Role & access syncs live)
+    const unsubscribeAdmins = onSnapshot(
+      collection(db, 'admins'),
+      (snapshot) => {
+        const remoteAdmins: AdminAccount[] = [];
+        snapshot.forEach(d => {
+          remoteAdmins.push({ id: d.id, ...d.data() } as AdminAccount);
+        });
+
+        if (remoteAdmins.length > 0) {
+          setAdminAccounts(prev => {
+            const combinedMap = new Map<string, AdminAccount>();
+            prev.forEach(a => combinedMap.set(a.id, a));
+            remoteAdmins.forEach(r => combinedMap.set(r.id, r));
+            return Array.from(combinedMap.values());
+          });
+          console.log('⚡ [Realtime Firebase] Admin accounts live updated.');
+        }
+      },
+      (err) => {
+        handleFirestoreError(err, OperationType.LIST, 'admins');
+      }
+    );
+
+    // Cleanup listeners when component unmounts
+    return () => {
+      unsubscribeSettings();
+      unsubscribeSubmissions();
+      unsubscribeAdmins();
+    };
   }, []);
 
   // Save admin session changes
@@ -368,6 +416,8 @@ export default function App() {
             onAddAdmin={handleAddAdmin}
             onDeleteAdmin={handleDeleteAdmin}
             onDeleteSubmission={handleDeleteSubmission}
+            isRealtimeConnected={isRealtimeConnected}
+            lastSyncTime={lastSyncTime}
           />
         )}
       </div>

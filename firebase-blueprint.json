@@ -53,13 +53,29 @@
         "role": { "type": "string", "description": "Role admin: super_admin atau admin", "enum": ["super_admin", "admin"] },
         "createdAt": { "type": "string", "description": "Waktu akun dibuat" }
       },
-      "required": ["email", "role"]
+    "ActiveSession": {
+      "title": "ActiveSession",
+      "description": "Progress pengerjaan CBT realtime siswa yang sedang berlangsung",
+      "type": "object",
+      "properties": {
+        "studentPhone": { "type": "string", "description": "Nomor HP siswa sebagai ID unik" },
+        "studentName": { "type": "string", "description": "Nama siswa" },
+        "answers": { "type": "object", "description": "Pilihan jawaban saat ini" },
+        "flagged": { "type": "object", "description": "Soal ditandai ragu-ragu" },
+        "stage": { "type": "string", "description": "Sesi aktif" },
+        "lastUpdated": { "type": "string", "description": "Timestamp update terakhir" }
+      },
+      "required": ["studentPhone", "studentName"]
     }
   },
   "firestore": {
     "/submissions/{submissionId}": {
       "schema": { "$ref": "#/entities/Submission" },
       "description": "Daftar hasil submit ujian siswa"
+    },
+    "/active_sessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/ActiveSession" },
+      "description": "Progress pengerjaan CBT siswa tersimpan secara realtime"
     },
     "/app_settings/{settingId}": {
       "schema": { "$ref": "#/entities/AppSettings" },

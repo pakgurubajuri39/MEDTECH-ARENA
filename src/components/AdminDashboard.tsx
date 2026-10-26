@@ -39,6 +39,8 @@ interface AdminDashboardProps {
   onAddAdmin: (email: string, name: string) => void;
   onDeleteAdmin: (id: string) => void;
   onDeleteSubmission?: (id: string) => void;
+  isRealtimeConnected?: boolean;
+  lastSyncTime?: string;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -49,7 +51,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   adminAccounts,
   onAddAdmin,
   onDeleteAdmin,
-  onDeleteSubmission
+  onDeleteSubmission,
+  isRealtimeConnected = true,
+  lastSyncTime
 }) => {
   const [activeTab, setActiveTab] = useState<'rekap' | 'analytics' | 'settings' | 'admins' | 'deploy'>('rekap');
 
@@ -338,11 +342,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* Top Admin Welcome Header */}
       <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-indigo-900 rounded-3xl p-6 sm:p-8 text-white shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-6 border border-slate-800">
         <div className="space-y-2">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30">
               {isSuperAdmin ? '🛡️ Super Administrator' : '👤 Staf Administrator'}
             </span>
             <span className="text-xs text-slate-400">&bull; {adminUser.email}</span>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-xs">
+              <span className={`w-2 h-2 rounded-full ${isRealtimeConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
+              <span>
+                {isRealtimeConnected ? '⚡ Firebase Realtime Sync Aktif: mdtech-arena' : 'Firebase Offline Fallback'}
+                {lastSyncTime ? ` (${lastSyncTime} WIB)` : ''}
+              </span>
+            </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
             Dashboard MEDTECH ARENA &bull; Try Out &amp; Marketing
