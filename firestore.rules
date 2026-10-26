@@ -1,0 +1,53 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Catch-all default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isBootstrappedAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'smagmdepok@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidSubmission(data) {
+      return data.keys().hasAll(['studentName', 'schoolOrigin', 'studentPhone', 'parentPhone', 'packetType', 'totalScore']) &&
+        data.studentName is string && data.studentName.size() > 0 && data.studentName.size() <= 150 &&
+        data.schoolOrigin is string && data.schoolOrigin.size() > 0 && data.schoolOrigin.size() <= 150 &&
+        data.studentPhone is string && data.studentPhone.size() > 0 && data.studentPhone.size() <= 30 &&
+        data.parentPhone is string && data.parentPhone.size() > 0 && data.parentPhone.size() <= 30 &&
+        data.packetType is string && data.packetType.size() <= 5 &&
+        data.totalScore is number && data.totalScore >= 0 && data.totalScore <= 100;
+    }
+
+    // Student Exam Submissions
+    match /submissions/{submissionId} {
+      allow create: if isValidId(submissionId) && isValidSubmission(request.resource.data);
+      allow get: if isValidId(submissionId);
+      allow list: if isBootstrappedAdmin();
+      allow update, delete: if isBootstrappedAdmin();
+    }
+
+    // Application Settings & School Profile
+    match /app_settings/{settingId} {
+      allow read: if isValidId(settingId);
+      allow write: if isBootstrappedAdmin() && isValidId(settingId);
+    }
+
+    // Admin accounts
+    match /admins/{adminId} {
+      allow read, write: if isBootstrappedAdmin() && isValidId(adminId);
+    }
+  }
+}

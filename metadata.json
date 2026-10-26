@@ -1,0 +1,6 @@
+{
+  "name": "Try Out TKA SMP - SMA Genesis Medicare",
+  "description": "Aplikasi Web Resmi Try Out Tes Kemampuan Akademik (TKA) Jenjang SMP berbasis CBT Pusmendik diselenggarakan oleh SMA Genesis Medicare.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

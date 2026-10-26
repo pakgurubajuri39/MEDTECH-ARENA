@@ -1,0 +1,73 @@
+{
+  "entities": {
+    "Submission": {
+      "title": "Submission",
+      "description": "Hasil dan data registrasi pengerjaan Try Out TKA SMP siswa",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique submission ID" },
+        "studentName": { "type": "string", "description": "Nama lengkap siswa", "maxLength": 120 },
+        "schoolOrigin": { "type": "string", "description": "Asal sekolah SMP", "maxLength": 150 },
+        "homeAddress": { "type": "string", "description": "Alamat rumah siswa", "maxLength": 300 },
+        "studentPhone": { "type": "string", "description": "Nomor WhatsApp/HP siswa", "maxLength": 30 },
+        "parentPhone": { "type": "string", "description": "Nomor HP/WA Orang Tua siswa", "maxLength": 30 },
+        "packetType": { "type": "string", "description": "Tipe paket soal (A, B, C)", "maxLength": 5 },
+        "totalScore": { "type": "number", "description": "Total skor nilai akhir" },
+        "indonesianScore": { "type": "number", "description": "Skor Bahasa Indonesia" },
+        "mathScore": { "type": "number", "description": "Skor Matematika" },
+        "totalCorrect": { "type": "number", "description": "Jumlah jawaban benar" },
+        "totalWrong": { "type": "number", "description": "Jumlah jawaban salah" },
+        "totalBlank": { "type": "number", "description": "Jumlah soal tidak dijawab" },
+        "answers": { "type": "object", "description": "Map kunci jawaban siswa" },
+        "subTopicAnalysis": { "type": "object", "description": "Analisis penguasaan materi per topik" },
+        "startedAt": { "type": "string", "description": "Waktu mulai tes" },
+        "completedAt": { "type": "string", "description": "Waktu selesai tes" },
+        "createdAt": { "type": "string", "description": "Waktu tersimpan di server" }
+      },
+      "required": ["studentName", "schoolOrigin", "studentPhone", "parentPhone", "packetType", "totalScore"]
+    },
+    "AppSettings": {
+      "title": "AppSettings",
+      "description": "Pengaturan aplikasi Try Out dan profil sekolah SMA Genesis Medicare",
+      "type": "object",
+      "properties": {
+        "schoolName": { "type": "string", "description": "Nama sekolah", "maxLength": 150 },
+        "schoolAddress": { "type": "string", "description": "Alamat sekolah", "maxLength": 300 },
+        "schoolPhone": { "type": "string", "description": "Kontak sekolah", "maxLength": 50 },
+        "schoolEmail": { "type": "string", "description": "Email sekolah", "maxLength": 100 },
+        "isExamActive": { "type": "boolean", "description": "Status aktif/non-aktif ujian Try Out" },
+        "showScoreToStudents": { "type": "boolean", "description": "Visibilitas nilai langsung ke siswa" },
+        "activePacketType": { "type": "string", "description": "Tipe paket soal yang aktif", "maxLength": 5 },
+        "durationMinutes": { "type": "number", "description": "Durasi pengerjaan soal dalam menit" },
+        "updatedAt": { "type": "string", "description": "Timestamp pembaruan terakhir" }
+      },
+      "required": ["schoolName", "isExamActive", "showScoreToStudents", "activePacketType"]
+    },
+    "AdminAccount": {
+      "title": "AdminAccount",
+      "description": "Akun administrator yang terdaftar",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "description": "Email admin", "maxLength": 120 },
+        "name": { "type": "string", "description": "Nama admin", "maxLength": 100 },
+        "role": { "type": "string", "description": "Role admin: super_admin atau admin", "enum": ["super_admin", "admin"] },
+        "createdAt": { "type": "string", "description": "Waktu akun dibuat" }
+      },
+      "required": ["email", "role"]
+    }
+  },
+  "firestore": {
+    "/submissions/{submissionId}": {
+      "schema": { "$ref": "#/entities/Submission" },
+      "description": "Daftar hasil submit ujian siswa"
+    },
+    "/app_settings/{settingId}": {
+      "schema": { "$ref": "#/entities/AppSettings" },
+      "description": "Konfigurasi sistem Try Out dan profil sekolah"
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminAccount" },
+      "description": "Daftar hak akses admin"
+    }
+  }
+}
