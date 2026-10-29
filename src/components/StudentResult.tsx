@@ -185,7 +185,7 @@ export const StudentResult: React.FC<StudentResultProps> = ({
           </span>
           <h4 className="text-xl font-bold">Tertarik Bergabung dengan SMA Genesis Medicare?</h4>
           <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
-            Gunakan hasil perolehan nilai Try Out ini untuk mengajukan beasiswa potongan uang pangkal dan bergabung di kelas unggulan Medical Science &amp; Health Informatics.
+            Gunakan hasil perolehan nilai Try Out ini untuk mengajukan beasiswa potongan uang pangkal dan bergabung di kelas unggulan SMA Genesis Medicare.
           </p>
         </div>
 

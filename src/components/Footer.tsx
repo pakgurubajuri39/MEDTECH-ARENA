@@ -24,16 +24,16 @@ export const Footer: React.FC<FooterProps> = ({ settings, onStartExam, onOpenAdm
               </span>
             </div>
             <p className="text-sm text-slate-400 leading-relaxed">
-              Sekolah Menengah Atas pelopor keunggulan bidang Ilmu Kedokteran (Medical Science), Farmasi, dan Teknologi Digital berlandaskan karakter akhlak mulia dan kepemimpinan global.
+              Sekolah Menengah Atas unggulan berbasis Kurikulum Merdeka, sains teknologi modern, serta pembentukan karakter akhlak mulia dan kepemimpinan global berdaya saing tinggi.
             </p>
             <div className="pt-2 flex items-center gap-3">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-cyan-900/40 text-cyan-300 border border-cyan-700/50">
                 <Award className="w-3.5 h-3.5 text-cyan-400" />
-                Terakreditasi Baik
+                Terakreditasi A Unggul
               </span>
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-900/40 text-emerald-300 border border-emerald-700/50">
                 <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                Medical Pathway
+                Kurikulum Merdeka Unggul
               </span>
             </div>
           </div>
@@ -46,23 +46,23 @@ export const Footer: React.FC<FooterProps> = ({ settings, onStartExam, onOpenAdm
             <ul className="space-y-2.5 text-sm text-slate-400">
               <li className="flex items-start gap-2">
                 <CheckCircle className="w-4 h-4 text-cyan-400 mt-0.5 shrink-0" />
-                <span>Medical Science & Health Informatics</span>
+                <span>Academic &amp; Science Excellence</span>
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle className="w-4 h-4 text-cyan-400 mt-0.5 shrink-0" />
-                <span>Kelas Intensif Masuk FK & PTN Top Indonesia</span>
+                <span>Kelas Intensif Masuk PTN Top &amp; Sekolah Kedinasan</span>
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle className="w-4 h-4 text-cyan-400 mt-0.5 shrink-0" />
-                <span>Laboratorium Medis, Farmasi & Komputer</span>
+                <span>Laboratorium Sains Terpadu &amp; Multimedia Komputer</span>
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle className="w-4 h-4 text-cyan-400 mt-0.5 shrink-0" />
-                <span>Beasiswa Prestasi Akademik & Tahfidz</span>
+                <span>Beasiswa Prestasi Akademik &amp; Tahfidz</span>
               </li>
               <li className="flex items-start gap-2">
                 <CheckCircle className="w-4 h-4 text-cyan-400 mt-0.5 shrink-0" />
-                <span>Pengembangan Karakter & Kepemimpinan</span>
+                <span>Character &amp; Leadership Development</span>
               </li>
             </ul>
           </div>

@@ -36,14 +36,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({ settings, onStartExam,
           {/* Badge */}
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs sm:text-sm font-bold tracking-wide">
             <Sparkles className="w-4 h-4 text-cyan-400 animate-pulse" />
-            <span>MEDTECH ARENA &bull; TRY OUT TKA SMP RESMI</span>
+            <span>MEDTECH ARENA &bull; TRY OUT TKA SMP RESMI &bull; TERAKREDITASI A UNGGUL</span>
           </div>
 
           {/* Main Title */}
           <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight leading-tight">
             Tantang Potensimu di <span className="bg-gradient-to-r from-cyan-400 via-sky-300 to-white bg-clip-text text-transparent">MEDTECH ARENA</span> <br className="hidden sm:inline" />
             <span className="bg-gradient-to-r from-cyan-400 via-sky-300 to-blue-500 bg-clip-text text-transparent">
-              Menuju SMA Kedokteran &amp; Teknologi Modern
+              Menuju SMA Unggulan Berprestasi &amp; Berkarakter
             </span>
           </h1>
 
@@ -103,14 +103,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({ settings, onStartExam,
       {/* About SMA Genesis Medicare Section */}
       <section id="tentang-sekolah" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 scroll-mt-24 space-y-12">
         <div className="text-center space-y-4 max-w-3xl mx-auto">
-          <span className="text-cyan-600 font-bold text-sm tracking-widest uppercase">
-            Mengenal SMA Genesis Medicare
-          </span>
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-100 text-cyan-850 text-xs font-bold uppercase tracking-wider">
+            <Award className="w-4 h-4 text-cyan-600" />
+            <span>Mengenal SMA Genesis Medicare &bull; Terakreditasi A Unggul</span>
+          </div>
           <h2 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
-            Pelopor Pendidikan Berbasis Kesehatan & Teknologi Modern
+            Sekolah Menengah Atas Berkarakter, Unggul dalam Akademik &amp; Teknologi
           </h2>
           <p className="text-slate-600 text-base leading-relaxed">
-            Terletak strategis di Kota Depok, SMA Genesis Medicare didirikan dengan visi melahirkan generasi saintis, dokter, apoteker, dan inovator teknologi yang berkarakter dan berdaya saing global.
+            Terletak strategis di Kota Depok, SMA Genesis Medicare didirikan dengan visi melahirkan generasi saintis, cendekiawan, pemimpin masa depan, dan inovator teknologi yang berkarakter dan berdaya saing global.
           </p>
         </div>
 
@@ -118,13 +119,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ settings, onStartExam,
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <div className="bg-white p-8 rounded-3xl border border-slate-200/80 shadow-sm hover:shadow-xl hover:border-cyan-200 transition-all group">
             <div className="w-14 h-14 rounded-2xl bg-cyan-50 flex items-center justify-center text-cyan-600 group-hover:bg-cyan-600 group-hover:text-white transition-colors mb-6 shadow-sm">
-              <Stethoscope className="w-7 h-7" />
+              <GraduationCap className="w-7 h-7" />
             </div>
             <h3 className="text-xl font-bold text-slate-900 mb-3">
-              Medical Science Pathway
+              Academic &amp; Science Excellence
             </h3>
             <p className="text-sm text-slate-600 leading-relaxed">
-              Program kurikulum khusus pengenalan dasar-dasar ilmu kedokteran, anatomi tubuh, farmasi herbal, serta bimbingan intensif persiapan tembus SNBP dan SNBT Fakultas Kedokteran (FK) perguruan tinggi negeri favorit.
+              Program kurikulum holistik berbasis Kurikulum Merdeka yang mendalam dalam sains, matematika, sosial, dan bahasa. Dilengkapi bimbingan intensif persiapan tembus SNBP, SNBT, dan seleksi Perguruan Tinggi Negeri (PTN) favorit impian siswa.
             </p>
           </div>
 
@@ -133,10 +134,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ settings, onStartExam,
               <Cpu className="w-7 h-7" />
             </div>
             <h3 className="text-xl font-bold text-slate-900 mb-3">
-              Health & Bio-Informatics
+              Digital &amp; Technology Innovation
             </h3>
             <p className="text-sm text-slate-600 leading-relaxed">
-              Menggabungkan kecerdasan buatan, sains data medis, dan pemrograman komputer agar siswa mampu menciptakan inovasi aplikasi telemedisin, pengolahan citra rontgen, dan robotika kesehatan.
+              Pengembangan kecakapan abad 21 melalui integrasi kecerdasan buatan (AI), literasi digital, pemrograman komputer, dan riset sains terapan agar siswa siap menjadi generasi kreator dan inovator berwawasan global.
             </p>
           </div>
 
@@ -145,7 +146,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ settings, onStartExam,
               <Award className="w-7 h-7" />
             </div>
             <h3 className="text-xl font-bold text-slate-900 mb-3">
-              Character & Leadership
+              Character &amp; Leadership
             </h3>
             <p className="text-sm text-slate-600 leading-relaxed">
               Pembinaan adab, nilai kepemimpinan, kerelawanan PMR aktif, serta membentuk kepribadian yang empati, jujur, santun, dan bertanggung jawab penuh kepada masyarakat.
@@ -161,15 +162,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({ settings, onStartExam,
                 Fasilitas Kampus Modern
               </span>
               <h3 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-                Lingkungan Belajar Representatif & Interaktif
+                Lingkungan Belajar Representatif &amp; Interaktif
               </h3>
               <p className="text-slate-300 text-sm leading-relaxed">
-                SMA Genesis Medicare dilengkapi dengan sarana laboratorium berstandar industri dan ruang kelas berbasis multimedia yang mendukung eksplorasi sains maksimal bagi seluruh siswa.
+                SMA Genesis Medicare dilengkapi dengan sarana laboratorium berstandar modern dan ruang kelas berbasis multimedia yang mendukung eksplorasi sains, akademik, dan teknologi maksimal bagi seluruh siswa.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                 <div className="flex items-center gap-2.5">
                   <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0" />
-                  <span>Laboratorium Medis & Farmasi</span>
+                  <span>Laboratorium Sains Terpadu (Fisika, Kimia, Biologi)</span>
                 </div>
                 <div className="flex items-center gap-2.5">
                   <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0" />

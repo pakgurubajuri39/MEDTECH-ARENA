@@ -52,7 +52,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
             </div>
             <p className="hidden sm:block text-[11px] md:text-xs text-slate-400 font-medium truncate max-w-[280px] md:max-w-none">
-              Try Out TKA SMP &bull; Medical Science &amp; Health Tech
+              Try Out TKA SMP &bull; Terakreditasi A Unggul
             </p>
           </div>
         </div>
