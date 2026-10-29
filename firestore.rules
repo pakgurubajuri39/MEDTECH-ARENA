@@ -26,6 +26,11 @@ service cloud.firestore {
         data.totalScore is number && data.totalScore >= 0 && data.totalScore <= 100;
     }
 
+    // Connection & Healthcheck test path
+    match /test/{testId} {
+      allow read: if isValidId(testId);
+    }
+
     // Student Exam Submissions (Final Realtime Persistent Store)
     match /submissions/{submissionId} {
       allow create: if isValidId(submissionId) && isValidSubmission(request.resource.data);

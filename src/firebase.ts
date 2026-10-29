@@ -23,12 +23,13 @@ export const firebaseConfig = {
   projectId: "mdtech-arena",
   storageBucket: "mdtech-arena.firebasestorage.app",
   messagingSenderId: "1008786092212",
-  appId: "1:1008786092212:web:db121cb1079b47622fe7e1"
+  appId: "1:1008786092212:web:db121cb1079b47622fe7e1",
+  firestoreDatabaseId: "(default)"
 };
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-export const db = getFirestore(app);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 

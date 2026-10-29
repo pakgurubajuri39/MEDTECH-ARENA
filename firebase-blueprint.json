@@ -53,6 +53,8 @@
         "role": { "type": "string", "description": "Role admin: super_admin atau admin", "enum": ["super_admin", "admin"] },
         "createdAt": { "type": "string", "description": "Waktu akun dibuat" }
       },
+      "required": ["email", "name", "role"]
+    },
     "ActiveSession": {
       "title": "ActiveSession",
       "description": "Progress pengerjaan CBT realtime siswa yang sedang berlangsung",

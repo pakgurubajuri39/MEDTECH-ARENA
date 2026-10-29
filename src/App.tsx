@@ -198,10 +198,30 @@ export default function App() {
   }, [adminUser]);
 
   // Handle student registration form proceed
-  const handleProfileProceed = (profile: StudentProfile) => {
+  const handleProfileProceed = async (profile: StudentProfile) => {
     setStudentProfile(profile);
     localStorage.setItem('tka_student_profile', JSON.stringify(profile));
     setCurrentView('instructions');
+
+    try {
+      const sanitizedPhone = profile.studentPhone.replace(/[^a-zA-Z0-9]/g, '') || `id_${Date.now()}`;
+      await setDoc(doc(db, 'active_sessions', `sess_${sanitizedPhone}`), {
+        studentPhone: profile.studentPhone,
+        studentName: profile.fullName,
+        schoolOrigin: profile.schoolOrigin,
+        homeAddress: profile.homeAddress,
+        parentPhone: profile.parentPhone,
+        packetType: settings.activePacketType,
+        sessionStage: 'instructions',
+        answers: {},
+        flagged: {},
+        registeredAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+      console.log('⚡ Student registration synced to Firebase active_sessions');
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'active_sessions');
+    }
   };
 
   // Start CBT Exam
@@ -275,6 +295,14 @@ export default function App() {
         createdAt: nowIso
       });
       console.log('Submission successfully persisted to Firebase Firestore!');
+
+      // Mark session as completed in active_sessions
+      const sanitizedPhone = studentProfile.studentPhone.replace(/[^a-zA-Z0-9]/g, '') || 'guest';
+      await setDoc(doc(db, 'active_sessions', `sess_${sanitizedPhone}`), {
+        status: 'completed',
+        completedSubmissionId: submissionId,
+        updatedAt: nowIso
+      }, { merge: true });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `submissions/${submissionId}`);
     }
