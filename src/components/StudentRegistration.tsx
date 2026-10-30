@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { User, School, MapPin, Phone, ArrowRight, ArrowLeft, CheckCircle, AlertCircle, ShieldAlert } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { User, School, MapPin, Phone, ArrowRight, ArrowLeft, CheckCircle, AlertCircle, ShieldAlert, Clock, Calendar } from 'lucide-react';
 import { StudentProfile, AppSettings } from '../types';
+import { getExamAccessStatus, formatIndonesianDateTime } from '../utils/examAccess';
 
 interface StudentRegistrationProps {
   settings: AppSettings;
@@ -77,20 +78,58 @@ export const StudentRegistration: React.FC<StudentRegistrationProps> = ({
     validate();
   };
 
-  if (!settings.isExamActive) {
+  const [now, setNow] = useState<Date>(new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 3000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const accessStatus = useMemo(() => getExamAccessStatus(settings, now), [settings, now]);
+
+  if (!accessStatus.isOpen) {
     return (
-      <div className="max-w-xl mx-auto my-12 p-8 bg-white rounded-3xl border border-slate-200 shadow-md text-center space-y-4">
-        <ShieldAlert className="w-16 h-16 text-amber-500 mx-auto" />
-        <h2 className="text-2xl font-bold text-slate-800">Pendaftaran Ujian Belum Dibuka</h2>
-        <p className="text-sm text-slate-600">
-          Saat ini sesi Try Out TKA SMP sedang dinonaktifkan oleh administrator SMA Genesis Medicare. Silakan kembali lagi nanti atau hubungi panitia.
-        </p>
-        <button
-          onClick={onBack}
-          className="mt-4 px-6 py-2.5 bg-slate-800 text-white font-medium rounded-xl hover:bg-slate-700 text-sm"
-        >
-          Kembali ke Beranda
-        </button>
+      <div className="max-w-xl mx-auto my-12 p-8 bg-white rounded-3xl border border-slate-200 shadow-md text-center space-y-5">
+        <div className="w-16 h-16 rounded-3xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto shadow-xs">
+          {accessStatus.statusLabel.includes('Belum') ? (
+            <Clock className="w-8 h-8 text-amber-500 animate-pulse" />
+          ) : (
+            <ShieldAlert className="w-8 h-8 text-rose-500" />
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <span className={`inline-block px-3 py-1 rounded-full text-xs font-bold border ${
+            accessStatus.badgeColor === 'amber'
+              ? 'bg-amber-100 text-amber-800 border-amber-300'
+              : 'bg-rose-100 text-rose-800 border-rose-300'
+          }`}>
+            {accessStatus.badgeText}
+          </span>
+          <h2 className="text-2xl font-black text-slate-800">
+            {accessStatus.statusLabel.includes('Belum')
+              ? 'Pendaftaran Ujian Belum Dibuka'
+              : 'Pendaftaran Ujian Sedang Ditutup'}
+          </h2>
+          <p className="text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
+            {accessStatus.detailMessage}
+          </p>
+        </div>
+
+        {settings.examOpenAt && accessStatus.statusLabel.includes('Belum') && (
+          <div className="p-4 rounded-2xl bg-blue-50 border border-blue-200 text-xs text-blue-900 max-w-md mx-auto flex items-center justify-center gap-2">
+            <Calendar className="w-4 h-4 text-blue-600 shrink-0" />
+            <span>Jadwal Buka: <strong>{formatIndonesianDateTime(settings.examOpenAt)}</strong></span>
+          </div>
+        )}
+
+        <div>
+          <button
+            onClick={onBack}
+            className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl text-xs transition-colors cursor-pointer shadow-xs"
+          >
+            Kembali ke Beranda
+          </button>
+        </div>
       </div>
     );
   }

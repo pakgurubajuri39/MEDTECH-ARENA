@@ -65,7 +65,12 @@ export interface AppSettings {
   schoolPhone: string;
   schoolEmail: string;
   isExamActive: boolean;
+  examAccessMode?: 'manual' | 'scheduled';
+  examOpenAt?: string;
+  examCloseAt?: string;
   showScoreToStudents: boolean;
+  scoreReleaseMode?: 'immediate' | 'scheduled' | 'hidden';
+  scoreReleaseAt?: string;
   activePacketType: PacketType;
   durationMinutes: number;
   updatedAt?: string;

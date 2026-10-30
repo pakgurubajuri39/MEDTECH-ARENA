@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { GraduationCap, ShieldCheck, BookOpen, LogOut, Menu, X, Sparkles } from 'lucide-react';
 import { AppSettings } from '../types';
+import { getExamAccessStatus } from '../utils/examAccess';
 
 interface NavbarProps {
   currentView: 'landing' | 'register' | 'instructions' | 'cbt' | 'result' | 'admin';
@@ -20,6 +21,14 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogoutAdmin,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [now, setNow] = useState<Date>(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 5000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const examStatus = useMemo(() => getExamAccessStatus(settings, now), [settings, now]);
 
   // If in CBT mode, we show a focused, distraction-free bar
   if (currentView === 'cbt') {
@@ -29,6 +38,14 @@ export const Navbar: React.FC<NavbarProps> = ({
   const navigateTo = (view: 'landing' | 'register' | 'instructions' | 'cbt' | 'result' | 'admin') => {
     setCurrentView(view);
     setMobileMenuOpen(false);
+  };
+
+  const handleStartExamClick = () => {
+    if (examStatus.isOpen) {
+      navigateTo('register');
+    } else {
+      alert(examStatus.detailMessage);
+    }
   };
 
   return (
@@ -61,18 +78,20 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="hidden md:flex items-center gap-2 lg:gap-3">
           {/* Exam status indicator */}
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/80 border border-slate-700 text-xs font-medium">
-            {settings.isExamActive ? (
+            {examStatus.isOpen ? (
               <>
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                 </span>
-                <span className="text-emerald-300">Try Out Aktif (Paket {settings.activePacketType})</span>
+                <span className="text-emerald-300">{examStatus.badgeText} (Paket {settings.activePacketType})</span>
               </>
             ) : (
               <>
-                <span className="h-2 w-2 rounded-full bg-amber-500"></span>
-                <span className="text-amber-300">Try Out Ditutup</span>
+                <span className={`h-2 w-2 rounded-full ${examStatus.badgeColor === 'amber' ? 'bg-amber-400' : 'bg-rose-500'}`}></span>
+                <span className={examStatus.badgeColor === 'amber' ? 'text-amber-300' : 'text-rose-300'}>
+                  {examStatus.badgeText}
+                </span>
               </>
             )}
           </div>
@@ -88,14 +107,12 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
 
           <button
-            onClick={() => {
-              if (settings.isExamActive) {
-                navigateTo('register');
-              } else {
-                alert('Pendaftaran Try Out saat ini sedang non-aktif oleh admin sekolah.');
-              }
-            }}
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs lg:text-sm font-semibold rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-md shadow-cyan-600/30 hover:shadow-cyan-500/40 transition-all cursor-pointer min-h-[40px]"
+            onClick={handleStartExamClick}
+            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs lg:text-sm font-semibold rounded-lg shadow-md transition-all cursor-pointer min-h-[40px] ${
+              examStatus.isOpen
+                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-cyan-600/30 hover:shadow-cyan-500/40'
+                : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-750'
+            }`}
           >
             <BookOpen className="w-4 h-4" />
             <span>Mulai Try Out</span>
@@ -137,14 +154,12 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Mobile & Small Tablet Right Controls (visible on < md:) */}
         <div className="flex md:hidden items-center gap-1.5">
           <button
-            onClick={() => {
-              if (settings.isExamActive) {
-                navigateTo('register');
-              } else {
-                alert('Pendaftaran Try Out saat ini sedang non-aktif oleh admin sekolah.');
-              }
-            }}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-sm min-h-[40px]"
+            onClick={handleStartExamClick}
+            className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold rounded-lg shadow-sm min-h-[40px] ${
+              examStatus.isOpen
+                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white'
+                : 'bg-slate-800 text-slate-400 border border-slate-700'
+            }`}
           >
             <BookOpen className="w-3.5 h-3.5" />
             <span>Mulai</span>
@@ -166,13 +181,16 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* Status */}
           <div className="flex items-center justify-between p-3 rounded-xl bg-slate-800/80 border border-slate-700 text-xs">
             <span className="text-slate-400">Status Try Out:</span>
-            {settings.isExamActive ? (
+            {examStatus.isOpen ? (
               <span className="font-bold text-emerald-400 flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                Aktif (Paket {settings.activePacketType})
+                {examStatus.badgeText} (Paket {settings.activePacketType})
               </span>
             ) : (
-              <span className="font-bold text-amber-400">Ditutup Sementara</span>
+              <span className={`font-bold flex items-center gap-1.5 ${examStatus.badgeColor === 'amber' ? 'text-amber-400' : 'text-rose-400'}`}>
+                <span className={`w-2 h-2 rounded-full ${examStatus.badgeColor === 'amber' ? 'bg-amber-400' : 'bg-rose-500'}`}></span>
+                {examStatus.badgeText}
+              </span>
             )}
           </div>
 
@@ -188,14 +206,12 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
 
           <button
-            onClick={() => {
-              if (settings.isExamActive) {
-                navigateTo('register');
-              } else {
-                alert('Pendaftaran Try Out saat ini sedang non-aktif oleh admin sekolah.');
-              }
-            }}
-            className="w-full text-left px-3.5 py-3 rounded-xl text-sm font-bold bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md flex items-center justify-between min-h-[44px]"
+            onClick={handleStartExamClick}
+            className={`w-full text-left px-3.5 py-3 rounded-xl text-sm font-bold shadow-md flex items-center justify-between min-h-[44px] ${
+              examStatus.isOpen
+                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white'
+                : 'bg-slate-800 text-slate-400 border border-slate-700'
+            }`}
           >
             <span>Mulai Ujian CBT</span>
             <BookOpen className="w-4 h-4" />

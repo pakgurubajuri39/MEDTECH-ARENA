@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   GraduationCap, 
   Stethoscope, 
@@ -11,11 +11,13 @@ import {
   ShieldCheck, 
   Activity, 
   Clock, 
+  Calendar,
   HelpCircle,
   Building2,
   Users
 } from 'lucide-react';
 import { AppSettings } from '../types';
+import { getExamAccessStatus } from '../utils/examAccess';
 
 interface LandingPageProps {
   settings: AppSettings;
@@ -24,6 +26,14 @@ interface LandingPageProps {
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({ settings, onStartExam, onOpenAdmin }) => {
+  const [now, setNow] = useState<Date>(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 5000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const examStatus = useMemo(() => getExamAccessStatus(settings, now), [settings, now]);
   return (
     <div className="space-y-16 pb-16">
       {/* Hero Section */}
@@ -55,27 +65,43 @@ export const LandingPage: React.FC<LandingPageProps> = ({ settings, onStartExam,
           </p>
 
           {/* CTA Buttons */}
-          <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-4">
-            <button
-              onClick={onStartExam}
-              disabled={!settings.isExamActive}
-              className={`w-full sm:w-auto px-8 py-4 rounded-xl font-bold text-base flex items-center justify-center gap-3 shadow-xl transition-all cursor-pointer ${
-                settings.isExamActive
-                  ? 'bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:-translate-y-0.5'
-                  : 'bg-slate-700 text-slate-400 cursor-not-allowed'
-              }`}
-            >
-              <BookOpen className="w-5 h-5" />
-              <span>{settings.isExamActive ? 'Mulai Try Out Sekarang' : 'Ujian Sedang Non-Aktif'}</span>
-              <ArrowRight className="w-5 h-5" />
-            </button>
+          <div className="pt-4 flex flex-col items-center justify-center gap-3">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 w-full">
+              <button
+                onClick={onStartExam}
+                disabled={!examStatus.isOpen}
+                className={`w-full sm:w-auto px-8 py-4 rounded-xl font-bold text-base flex items-center justify-center gap-3 shadow-xl transition-all cursor-pointer ${
+                  examStatus.isOpen
+                    ? 'bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:-translate-y-0.5'
+                    : 'bg-slate-800 text-slate-400 border border-slate-700 cursor-not-allowed'
+                }`}
+              >
+                <BookOpen className="w-5 h-5" />
+                <span>
+                  {examStatus.isOpen
+                    ? 'Mulai Try Out Sekarang'
+                    : examStatus.statusLabel.includes('Belum')
+                    ? `Pendaftaran ${examStatus.badgeText}`
+                    : 'Akses Try Out Ditutup'}
+                </span>
+                <ArrowRight className="w-5 h-5" />
+              </button>
 
-            <a
-              href="#tentang-sekolah"
-              className="w-full sm:w-auto px-6 py-4 rounded-xl font-semibold text-base bg-slate-800/90 hover:bg-slate-750 text-slate-200 border border-slate-700 transition-all flex items-center justify-center gap-2"
-            >
-              <span>Pelajari Profil Sekolah</span>
-            </a>
+              <a
+                href="#tentang-sekolah"
+                className="w-full sm:w-auto px-6 py-4 rounded-xl font-semibold text-base bg-slate-800/90 hover:bg-slate-750 text-slate-200 border border-slate-700 transition-all flex items-center justify-center gap-2"
+              >
+                <span>Pelajari Profil Sekolah</span>
+              </a>
+            </div>
+
+            {/* Schedule Status Notice under button */}
+            {!examStatus.isOpen && (
+              <p className="text-xs text-amber-300 flex items-center gap-1.5 mt-1">
+                <Clock className="w-3.5 h-3.5 shrink-0" />
+                <span>{examStatus.detailMessage}</span>
+              </p>
+            )}
           </div>
 
           {/* Key Quick Stats */}

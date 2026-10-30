@@ -36,7 +36,12 @@
         "schoolPhone": { "type": "string", "description": "Kontak sekolah", "maxLength": 50 },
         "schoolEmail": { "type": "string", "description": "Email sekolah", "maxLength": 100 },
         "isExamActive": { "type": "boolean", "description": "Status aktif/non-aktif ujian Try Out" },
+        "examAccessMode": { "type": "string", "description": "Mode akses ujian: manual atau scheduled", "enum": ["manual", "scheduled"] },
+        "examOpenAt": { "type": "string", "description": "Jadwal waktu pembukaan ujian otomatis" },
+        "examCloseAt": { "type": "string", "description": "Jadwal waktu penutupan ujian otomatis" },
         "showScoreToStudents": { "type": "boolean", "description": "Visibilitas nilai langsung ke siswa" },
+        "scoreReleaseMode": { "type": "string", "description": "Mode rilis nilai: immediate, scheduled, atau hidden", "enum": ["immediate", "scheduled", "hidden"] },
+        "scoreReleaseAt": { "type": "string", "description": "Jadwal waktu rilis nilai otomatis" },
         "activePacketType": { "type": "string", "description": "Tipe paket soal yang aktif", "maxLength": 5 },
         "durationMinutes": { "type": "number", "description": "Durasi pengerjaan soal dalam menit" },
         "updatedAt": { "type": "string", "description": "Timestamp pembaruan terakhir" }

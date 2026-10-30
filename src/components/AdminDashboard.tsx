@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Users, 
   Settings, 
@@ -26,9 +26,22 @@ import {
   School,
   Printer,
   FileCode,
-  FileText
+  FileText,
+  Clock,
+  Calendar,
+  Zap,
+  Lock,
+  Unlock,
+  AlertTriangle,
+  Sparkles
 } from 'lucide-react';
 import { ExamSubmission, AppSettings, AdminAccount, PacketType } from '../types';
+import { 
+  getExamAccessStatus, 
+  getScoreReleaseStatus, 
+  toDatetimeLocal, 
+  formatIndonesianDateTime 
+} from '../utils/examAccess';
 
 interface AdminDashboardProps {
   adminUser: { email: string; role: 'super_admin' | 'admin'; name: string };
@@ -78,6 +91,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [editSchoolPhone, setEditSchoolPhone] = useState(settings.schoolPhone);
   const [editSchoolEmail, setEditSchoolEmail] = useState(settings.schoolEmail);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
+
+  // Periodic ticker for live schedule evaluation
+  const [now, setNow] = useState<Date>(new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 5000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Form states for scheduled settings
+  const [scheduledOpenAt, setScheduledOpenAt] = useState(() => toDatetimeLocal(settings.examOpenAt));
+  const [scheduledCloseAt, setScheduledCloseAt] = useState(() => toDatetimeLocal(settings.examCloseAt));
+  const [scheduledScoreReleaseAt, setScheduledScoreReleaseAt] = useState(() => toDatetimeLocal(settings.scoreReleaseAt));
+
+  useEffect(() => {
+    if (settings.examOpenAt !== undefined) setScheduledOpenAt(toDatetimeLocal(settings.examOpenAt));
+    if (settings.examCloseAt !== undefined) setScheduledCloseAt(toDatetimeLocal(settings.examCloseAt));
+    if (settings.scoreReleaseAt !== undefined) setScheduledScoreReleaseAt(toDatetimeLocal(settings.scoreReleaseAt));
+  }, [settings.examOpenAt, settings.examCloseAt, settings.scoreReleaseAt]);
+
+  const examAccessStatus = useMemo(() => getExamAccessStatus(settings, now), [settings, now]);
+  const scoreReleaseStatus = useMemo(() => getScoreReleaseStatus(settings, now), [settings, now]);
 
   const isSuperAdmin = adminUser.role === 'super_admin';
 
@@ -366,17 +400,46 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* Quick Exam Status Toggles */}
         <div className="flex flex-wrap items-center gap-3">
           <div className="bg-slate-800/80 p-3 rounded-2xl border border-slate-700 space-y-1">
-            <div className="text-[10px] uppercase font-bold text-slate-400">Status Ujian</div>
-            <button
-              onClick={() => onUpdateSettings({ isExamActive: !settings.isExamActive })}
-              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                settings.isExamActive
-                  ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'
-                  : 'bg-rose-500 text-white hover:bg-rose-400'
-              }`}
-            >
-              {settings.isExamActive ? '● AKTIF (Buka)' : '○ NON-AKTIF (Tutup)'}
-            </button>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] uppercase font-bold text-slate-400">Akses Try Out</span>
+              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                settings.examAccessMode === 'scheduled' ? 'bg-cyan-900/60 text-cyan-300' : 'bg-slate-700 text-slate-300'
+              }`}>
+                {settings.examAccessMode === 'scheduled' ? 'Otomatis (Jadwal)' : 'Manual'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  if (settings.examAccessMode === 'scheduled') {
+                    onUpdateSettings({
+                      examAccessMode: 'manual',
+                      isExamActive: !examAccessStatus.isOpen
+                    });
+                  } else {
+                    onUpdateSettings({ isExamActive: !settings.isExamActive });
+                  }
+                }}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  examAccessStatus.isOpen
+                    ? 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'
+                    : 'bg-rose-500 text-white hover:bg-rose-400'
+                }`}
+                title="Klik untuk beralih aktif/non-aktif secara manual"
+              >
+                {examAccessStatus.isOpen ? '● TERBUKA (Buka)' : '○ DITUTUP (Tutup)'}
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-slate-800/80 p-3 rounded-2xl border border-slate-700 space-y-1">
+            <div className="text-[10px] uppercase font-bold text-slate-400">Rilis Nilai Siswa</div>
+            <div className="flex items-center gap-1.5 py-1">
+              <span className={`w-2 h-2 rounded-full ${scoreReleaseStatus.isReleased ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
+              <span className="text-xs font-bold text-slate-200">
+                {scoreReleaseStatus.badgeText}
+              </span>
+            </div>
           </div>
 
           <div className="bg-slate-800/80 p-3 rounded-2xl border border-slate-700 space-y-1">
@@ -810,66 +873,436 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
 
           {/* Toggle Visibilitas Nilai & Status Ujian */}
-          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-xs space-y-6">
-            <h3 className="text-lg font-bold text-slate-900">Kendali Try Out Siswa</h3>
-
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-200">
-                <div>
-                  <div className="font-bold text-slate-900 text-sm">Status Akses Try Out</div>
-                  <div className="text-xs text-slate-500">Jika dimatikan, siswa baru tidak dapat memulai tes CBT</div>
-                </div>
-                <button
-                  onClick={() => onUpdateSettings({ isExamActive: !settings.isExamActive })}
-                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    settings.isExamActive
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-slate-300 text-slate-700'
-                  }`}
-                >
-                  {settings.isExamActive ? 'Aktif (Terbuka)' : 'Non-Aktif (Ditutup)'}
-                </button>
+          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-xs space-y-8">
+            <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+              <div className="w-10 h-10 rounded-xl bg-cyan-100 text-cyan-800 flex items-center justify-center">
+                <Settings className="w-5 h-5" />
               </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Kendali Try Out Siswa</h3>
+                <p className="text-xs text-slate-500">
+                  Pengaturan jadwal buka/tutup ujian CBT, mode pengumuman nilai siswa, dan paket soal aktif
+                </p>
+              </div>
+            </div>
 
-              <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-200">
-                <div>
-                  <div className="font-bold text-slate-900 text-sm">Tampilkan Nilai Langsung ke Siswa</div>
-                  <div className="text-xs text-slate-500">
-                    Bila dimatikan, siswa hanya melihat notifikasi selesai dan nilai hanya direkapitulasi oleh panitia
+            {/* 1. STATUS AKSES TRY OUT (MANUAL & TERJADWAL OTOMATIS) */}
+            <div className="p-5 sm:p-6 rounded-2xl bg-slate-50 border border-slate-200 space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-blue-700" />
+                    <h4 className="font-bold text-slate-900 text-base">1. Status Akses Try Out</h4>
                   </div>
+                  <p className="text-xs text-slate-500">
+                    Atur kapan ujian dibuka dan ditutup. Panitia dapat mengaktifkan langsung sekarang atau menjadwalkannya buka &amp; tutup secara otomatis.
+                  </p>
                 </div>
+
+                {/* Status Badge */}
+                <div className="shrink-0">
+                  <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border ${
+                    examAccessStatus.badgeColor === 'emerald'
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                      : examAccessStatus.badgeColor === 'amber'
+                      ? 'bg-amber-50 text-amber-800 border-amber-300'
+                      : 'bg-rose-50 text-rose-800 border-rose-300'
+                  }`}>
+                    <span className={`w-2 h-2 rounded-full ${
+                      examAccessStatus.isOpen ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'
+                    }`}></span>
+                    <span>{examAccessStatus.statusLabel}: {examAccessStatus.badgeText}</span>
+                  </span>
+                </div>
+              </div>
+
+              {/* Mode Selection Tabs */}
+              <div className="flex items-center gap-2 p-1 bg-slate-200/70 rounded-xl w-fit">
                 <button
-                  onClick={() => onUpdateSettings({ showScoreToStudents: !settings.showScoreToStudents })}
-                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                    settings.showScoreToStudents
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-slate-300 text-slate-700'
+                  type="button"
+                  onClick={() => onUpdateSettings({ examAccessMode: 'manual' })}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    (settings.examAccessMode || 'manual') === 'manual'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  {settings.showScoreToStudents ? 'Tampilkan Nilai' : 'Sembunyikan Nilai'}
+                  ⚡ Mode Manual (Langsung)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onUpdateSettings({ examAccessMode: 'scheduled' })}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    settings.examAccessMode === 'scheduled'
+                      ? 'bg-white text-blue-700 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  📅 Mode Terjadwal (Otomatis Buka &amp; Tutup)
                 </button>
               </div>
 
-              <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-200">
-                <div>
-                  <div className="font-bold text-slate-900 text-sm">Tipe Paket Soal yang Digunakan</div>
-                  <div className="text-xs text-slate-500">Pilih antara Paket A, Paket B, atau Paket C (masing-masing 60 butir soal)</div>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  {(['A', 'B', 'C'] as PacketType[]).map((pkt) => (
+              {/* Mode Manual Content */}
+              {(settings.examAccessMode || 'manual') === 'manual' ? (
+                <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3">
+                  <div className="text-xs text-slate-600 leading-relaxed">
+                    Akses ujian saat ini dikendalikan <strong>secara langsung (manual)</strong> oleh panitia. Berlaku instan seketika di seluruh perangkat siswa:
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3 pt-1">
                     <button
-                      key={pkt}
-                      onClick={() => onUpdateSettings({ activePacketType: pkt })}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${
-                        settings.activePacketType === pkt
-                          ? 'bg-blue-700 text-white shadow-xs'
-                          : 'bg-white border border-slate-300 text-slate-600 hover:bg-slate-100'
+                      type="button"
+                      onClick={() => onUpdateSettings({ examAccessMode: 'manual', isExamActive: true })}
+                      className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-xs ${
+                        settings.isExamActive
+                          ? 'bg-emerald-600 text-white ring-2 ring-emerald-400'
+                          : 'bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border border-slate-200'
                       }`}
                     >
-                      Paket {pkt}
+                      <Zap className="w-4 h-4 text-emerald-400" />
+                      <span>Aktifkan Langsung Sekarang (Buka)</span>
                     </button>
-                  ))}
+
+                    <button
+                      type="button"
+                      onClick={() => onUpdateSettings({ examAccessMode: 'manual', isExamActive: false })}
+                      className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-xs ${
+                        !settings.isExamActive
+                          ? 'bg-rose-600 text-white ring-2 ring-rose-400'
+                          : 'bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200'
+                      }`}
+                    >
+                      <Lock className="w-4 h-4 text-rose-400" />
+                      <span>Tutup Akses Sekarang</span>
+                    </button>
+                  </div>
                 </div>
+              ) : (
+                /* Mode Terjadwal Content */
+                <div className="bg-white p-5 rounded-xl border border-slate-200 space-y-4">
+                  <div className="text-xs text-slate-600 leading-relaxed">
+                    Tentukan kapan sistem akan <strong>membuka</strong> dan <strong>menutup</strong> akses pendaftaran serta ujian secara otomatis (WIB):
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Waktu Ujian Dibuka Otomatis (Mulai)</span>
+                      </label>
+                      <input
+                        type="datetime-local"
+                        value={scheduledOpenAt}
+                        onChange={(e) => setScheduledOpenAt(e.target.value)}
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-semibold focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                      />
+                      <p className="text-[11px] text-slate-500">
+                        {scheduledOpenAt ? `Jadwal: ${formatIndonesianDateTime(scheduledOpenAt)}` : 'Belum ditentukan'}
+                      </p>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Waktu Ujian Ditutup Otomatis (Selesai)</span>
+                      </label>
+                      <input
+                        type="datetime-local"
+                        value={scheduledCloseAt}
+                        onChange={(e) => setScheduledCloseAt(e.target.value)}
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-semibold focus:border-rose-500 focus:ring-2 focus:ring-rose-200"
+                      />
+                      <p className="text-[11px] text-slate-500">
+                        {scheduledCloseAt ? `Jadwal: ${formatIndonesianDateTime(scheduledCloseAt)}` : 'Belum ditentukan'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Status Preview */}
+                  <div className="p-3 rounded-lg bg-blue-50/70 border border-blue-200 text-xs text-blue-900 flex items-start gap-2">
+                    <Sparkles className="w-4 h-4 text-blue-600 mt-0.5 shrink-0" />
+                    <div>
+                      <span className="font-bold">Kondisi Saat Ini: </span>
+                      <span>{examAccessStatus.detailMessage}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onUpdateSettings({
+                          examAccessMode: 'scheduled',
+                          examOpenAt: scheduledOpenAt ? new Date(scheduledOpenAt).toISOString() : '',
+                          examCloseAt: scheduledCloseAt ? new Date(scheduledCloseAt).toISOString() : ''
+                        });
+                        setSaveSuccessMsg('Jadwal buka & tutup otomatis berhasil disimpan ke backend Firebase!');
+                        setTimeout(() => setSaveSuccessMsg(''), 4000);
+                      }}
+                      className="px-4 py-2.5 rounded-xl font-bold text-xs bg-blue-700 hover:bg-blue-600 text-white shadow-xs flex items-center gap-2 cursor-pointer transition-all"
+                    >
+                      <Save className="w-4 h-4" />
+                      <span>Simpan Jadwal Buka &amp; Tutup Otomatis</span>
+                    </button>
+
+                    {/* Quick Overrides */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onUpdateSettings({ examAccessMode: 'manual', isExamActive: true });
+                          setSaveSuccessMsg('Akses ujian diaktifkan langsung sekarang (Bypass jadwal).');
+                          setTimeout(() => setSaveSuccessMsg(''), 4000);
+                        }}
+                        className="px-3 py-2 rounded-lg text-xs font-bold text-emerald-800 bg-emerald-100 hover:bg-emerald-200 cursor-pointer transition-colors"
+                        title="Beralih ke mode manual dan aktifkan langsung"
+                      >
+                        ⚡ Aktifkan Langsung Sekarang
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onUpdateSettings({ examAccessMode: 'manual', isExamActive: false });
+                          setSaveSuccessMsg('Akses ujian ditutup langsung sekarang (Bypass jadwal).');
+                          setTimeout(() => setSaveSuccessMsg(''), 4000);
+                        }}
+                        className="px-3 py-2 rounded-lg text-xs font-bold text-rose-800 bg-rose-100 hover:bg-rose-200 cursor-pointer transition-colors"
+                        title="Beralih ke mode manual dan tutup sekarang"
+                      >
+                        🛑 Tutup Sekarang
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 2. TAMPILKAN NILAI LANGSUNG KE SISWA (LANGSUNG KELUAR VS TERJADWAL OTOMATIS) */}
+            <div className="p-5 sm:p-6 rounded-2xl bg-slate-50 border border-slate-200 space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Eye className="w-4 h-4 text-cyan-700" />
+                    <h4 className="font-bold text-slate-900 text-base">2. Tampilkan Nilai Langsung ke Siswa</h4>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Tentukan apakah nilai ujian langsung keluar seketika ke siswa, dijadwalkan keluar pada waktu tertentu, atau dirahasiakan.
+                  </p>
+                </div>
+
+                {/* Score Status Badge */}
+                <div className="shrink-0">
+                  <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border ${
+                    scoreReleaseStatus.badgeColor === 'emerald'
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                      : scoreReleaseStatus.badgeColor === 'amber'
+                      ? 'bg-amber-50 text-amber-800 border-amber-300'
+                      : 'bg-slate-100 text-slate-700 border-slate-300'
+                  }`}>
+                    <span className={`w-2 h-2 rounded-full ${
+                      scoreReleaseStatus.isReleased ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                    }`}></span>
+                    <span>{scoreReleaseStatus.modeLabel}: {scoreReleaseStatus.badgeText}</span>
+                  </span>
+                </div>
+              </div>
+
+              {/* 3 Opsi Rilis Nilai */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {/* Opsi A: Langsung Keluar */}
+                <div 
+                  onClick={() => onUpdateSettings({ scoreReleaseMode: 'immediate', showScoreToStudents: true })}
+                  className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between space-y-3 ${
+                    (settings.scoreReleaseMode || (settings.showScoreToStudents ? 'immediate' : 'hidden')) === 'immediate'
+                      ? 'bg-emerald-50/60 border-emerald-400 ring-2 ring-emerald-300'
+                      : 'bg-white border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-emerald-800 uppercase flex items-center gap-1.5">
+                        <Zap className="w-3.5 h-3.5 text-emerald-600" />
+                        Langsung Keluar
+                      </span>
+                      {(settings.scoreReleaseMode || (settings.showScoreToStudents ? 'immediate' : 'hidden')) === 'immediate' && (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Siswa langsung dapat melihat nilai Bahasa Indonesia &amp; Matematika di kartu hasil ujian begitu mengklik selesai tes.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUpdateSettings({ scoreReleaseMode: 'immediate', showScoreToStudents: true });
+                    }}
+                    className="w-full py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer transition-colors text-center"
+                  >
+                    Pilih: Langsung Keluar
+                  </button>
+                </div>
+
+                {/* Opsi B: Jadwalkan Waktu Rilis */}
+                <div 
+                  onClick={() => onUpdateSettings({ scoreReleaseMode: 'scheduled', showScoreToStudents: true })}
+                  className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between space-y-3 ${
+                    settings.scoreReleaseMode === 'scheduled'
+                      ? 'bg-blue-50/60 border-blue-400 ring-2 ring-blue-300'
+                      : 'bg-white border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-blue-800 uppercase flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                        Jadwalkan Waktu Rilis
+                      </span>
+                      {settings.scoreReleaseMode === 'scheduled' && (
+                        <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Nilai otomatis keluar pada tanggal dan jam yang ditentukan. Sebelum waktu tiba, siswa hanya melihat notifikasi hasil tersimpan.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUpdateSettings({ scoreReleaseMode: 'scheduled', showScoreToStudents: true });
+                    }}
+                    className="w-full py-2 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white cursor-pointer transition-colors text-center"
+                  >
+                    Pilih: Terjadwal Otomatis
+                  </button>
+                </div>
+
+                {/* Opsi C: Sembunyikan Nilai Penuh */}
+                <div 
+                  onClick={() => onUpdateSettings({ scoreReleaseMode: 'hidden', showScoreToStudents: false })}
+                  className={`p-4 rounded-xl border transition-all cursor-pointer flex flex-col justify-between space-y-3 ${
+                    (settings.scoreReleaseMode || (settings.showScoreToStudents ? 'immediate' : 'hidden')) === 'hidden'
+                      ? 'bg-slate-100 border-slate-400 ring-2 ring-slate-300'
+                      : 'bg-white border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-800 uppercase flex items-center gap-1.5">
+                        <Lock className="w-3.5 h-3.5 text-slate-600" />
+                        Sembunyikan Nilai
+                      </span>
+                      {(settings.scoreReleaseMode || (settings.showScoreToStudents ? 'immediate' : 'hidden')) === 'hidden' && (
+                        <CheckCircle2 className="w-4 h-4 text-slate-600" />
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      Nilai tidak ditampilkan sama sekali ke siswa di web. Hanya panitia yang merekapitulasi dan mengumumkan secara mandiri.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUpdateSettings({ scoreReleaseMode: 'hidden', showScoreToStudents: false });
+                    }}
+                    className="w-full py-2 rounded-lg text-xs font-bold bg-slate-700 hover:bg-slate-600 text-white cursor-pointer transition-colors text-center"
+                  >
+                    Pilih: Sembunyikan Nilai
+                  </button>
+                </div>
+              </div>
+
+              {/* Form Konfigurasi Waktu Rilis Jika Mode Terjadwal Dipilih */}
+              {settings.scoreReleaseMode === 'scheduled' && (
+                <div className="bg-white p-4 sm:p-5 rounded-xl border border-blue-200 space-y-3 animate-in fade-in-50">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="space-y-1 flex-1">
+                      <label className="block text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <Clock className="w-4 h-4 text-blue-700" />
+                        <span>Tentukan Tanggal &amp; Jam Nilai Akan Keluar / Dirilis (WIB)</span>
+                      </label>
+                      <input
+                        type="datetime-local"
+                        value={scheduledScoreReleaseAt}
+                        onChange={(e) => setScheduledScoreReleaseAt(e.target.value)}
+                        className="w-full sm:w-80 px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-semibold focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+                      />
+                      <p className="text-[11px] text-slate-500">
+                        {scheduledScoreReleaseAt
+                          ? `Nilai akan dibuka otomatis pada: ${formatIndonesianDateTime(scheduledScoreReleaseAt)}`
+                          : 'Silakan pilih tanggal & jam rilis'}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onUpdateSettings({
+                            scoreReleaseMode: 'scheduled',
+                            scoreReleaseAt: scheduledScoreReleaseAt ? new Date(scheduledScoreReleaseAt).toISOString() : '',
+                            showScoreToStudents: true
+                          });
+                          setSaveSuccessMsg('Jadwal rilis nilai berhasil disimpan ke backend Firebase!');
+                          setTimeout(() => setSaveSuccessMsg(''), 4000);
+                        }}
+                        className="px-4 py-2.5 rounded-xl text-xs font-bold bg-blue-700 hover:bg-blue-600 text-white flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                      >
+                        <Save className="w-4 h-4" />
+                        <span>Simpan Jadwal Rilis Nilai</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onUpdateSettings({ scoreReleaseMode: 'immediate', showScoreToStudents: true });
+                          setSaveSuccessMsg('Nilai telah dirilis langsung sekarang untuk seluruh siswa!');
+                          setTimeout(() => setSaveSuccessMsg(''), 4000);
+                        }}
+                        className="px-4 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                        title="Bypass jadwal dan tampilkan nilai seketika"
+                      >
+                        <Zap className="w-4 h-4" />
+                        <span>Rilis Nilai Sekarang Juga</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-blue-50/80 border border-blue-200 text-xs text-blue-900">
+                    ℹ️ <strong>Informasi Tampilan Siswa:</strong> Sebelum waktu rilis tercapai, siswa yang menyelesaikan ujian akan melihat notifikasi <em>&quot;Pengumuman Nilai Terjadwal pada {scheduledScoreReleaseAt ? formatIndonesianDateTime(scheduledScoreReleaseAt) : 'waktu yang ditentukan'}&quot;</em>. Begitu waktu rilis tercapai, nilai dan analisis per sub-materi langsung terbuka otomatis.
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 3. TIPE PAKET SOAL */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between p-5 rounded-2xl bg-slate-50 border border-slate-200 gap-3">
+              <div>
+                <div className="font-bold text-slate-900 text-sm">3. Tipe Paket Soal yang Digunakan</div>
+                <div className="text-xs text-slate-500">
+                  Pilih antara Paket A, Paket B, atau Paket C (masing-masing 60 butir soal Pusmendik)
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {(['A', 'B', 'C'] as PacketType[]).map((pkt) => (
+                  <button
+                    key={pkt}
+                    type="button"
+                    onClick={() => onUpdateSettings({ activePacketType: pkt })}
+                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                      settings.activePacketType === pkt
+                        ? 'bg-blue-700 text-white shadow-xs ring-2 ring-blue-300'
+                        : 'bg-white border border-slate-300 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    Paket {pkt}
+                  </button>
+                ))}
               </div>
             </div>
           </div>

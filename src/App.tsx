@@ -45,7 +45,9 @@ export default function App() {
       schoolPhone: '0812-8888-2511',
       schoolEmail: 'smagmdepok@gmail.com',
       isExamActive: true,
+      examAccessMode: 'manual',
       showScoreToStudents: true,
+      scoreReleaseMode: 'immediate',
       activePacketType: 'A',
       durationMinutes: 75
     };

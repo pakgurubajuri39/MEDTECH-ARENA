@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import confetti from 'canvas-confetti';
 import { 
   CheckCircle2, 
@@ -11,9 +11,12 @@ import {
   School,
   FileText,
   User,
-  GraduationCap
+  GraduationCap,
+  Clock,
+  Calendar
 } from 'lucide-react';
 import { ExamSubmission, AppSettings } from '../types';
+import { getScoreReleaseStatus } from '../utils/examAccess';
 
 interface StudentResultProps {
   submission: ExamSubmission;
@@ -35,6 +38,14 @@ export const StudentResult: React.FC<StudentResultProps> = ({
       });
     } catch {}
   }, []);
+
+  const [now, setNow] = useState<Date>(new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 3000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const scoreStatus = useMemo(() => getScoreReleaseStatus(settings, now), [settings, now]);
 
   const handlePrint = () => {
     window.print();
@@ -73,8 +84,8 @@ export const StudentResult: React.FC<StudentResultProps> = ({
         </div>
       </div>
 
-      {/* 2. NILAI MASING-MASING MAPEL (TIDAK DIGABUNGKAN - KHUSUS NILAI UNTUK SISWA) */}
-      {settings.showScoreToStudents ? (
+      {/* 2. NILAI MASING-MASING MAPEL ATAU STATUS PENGUMUMAN NILAI */}
+      {scoreStatus.isReleased ? (
         <div className="space-y-6">
           <div className="text-center sm:text-left">
             <h3 className="text-lg font-bold text-slate-900">Perolehan Nilai Ujian Anda</h3>
@@ -157,8 +168,44 @@ export const StudentResult: React.FC<StudentResultProps> = ({
             </span>
           </div>
         </div>
+      ) : scoreStatus.releaseTimeFormatted ? (
+        /* Jika Mode Terjadwal (Nilai belum dibuka) */
+        <div className="bg-white p-8 sm:p-12 rounded-3xl border border-blue-200 shadow-md text-center space-y-6">
+          <div className="w-16 h-16 rounded-3xl bg-blue-100 text-blue-700 flex items-center justify-center mx-auto shadow-xs">
+            <Clock className="w-8 h-8 text-blue-700 animate-pulse" />
+          </div>
+          <div className="max-w-lg mx-auto space-y-3">
+            <span className="inline-block px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
+              ⏳ Pengumuman Nilai Terjadwal
+            </span>
+            <h3 className="text-2xl font-black text-slate-900">
+              Hasil Try Out Tersimpan di Server
+            </h3>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              Seluruh lembar jawaban Anda telah berhasil direkam dengan aman di server <strong>SMA Genesis Medicare</strong>. Sesuai jadwal resmi, perolehan nilai dan analisis sub-materi akan diumumkan secara serentak pada:
+            </p>
+          </div>
+
+          {/* Highlight Jadwal Rilis */}
+          <div className="p-5 rounded-2xl bg-blue-50 border border-blue-200 max-w-md mx-auto space-y-1">
+            <div className="text-xs font-bold text-blue-700 uppercase flex items-center justify-center gap-1.5">
+              <Calendar className="w-4 h-4" />
+              <span>Jadwal Resmi Rilis Nilai</span>
+            </div>
+            <div className="text-lg font-black text-slate-900">
+              {scoreStatus.releaseTimeFormatted}
+            </div>
+            <p className="text-[11px] text-blue-600">
+              Halaman ini akan otomatis menampilkan nilai Anda begitu waktu rilis telah tiba.
+            </p>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 max-w-md mx-auto text-xs text-slate-600">
+            Pastikan nomor WhatsApp Anda (<strong>{submission.studentPhone}</strong>) tetap aktif untuk menerima lembar hasil tes dan penawaran beasiswa.
+          </div>
+        </div>
       ) : (
-        /* Jika disembunyikan oleh Admin */
+        /* Jika disembunyikan oleh Panitia (Mode Hidden) */
         <div className="bg-white p-8 sm:p-12 rounded-3xl border border-slate-200 shadow-sm text-center space-y-5">
           <div className="w-16 h-16 rounded-3xl bg-blue-50 text-blue-700 flex items-center justify-center mx-auto shadow-sm">
             <FileText className="w-8 h-8" />
@@ -210,7 +257,7 @@ export const StudentResult: React.FC<StudentResultProps> = ({
           <span>Kembali ke Beranda</span>
         </button>
 
-        {settings.showScoreToStudents && (
+        {scoreStatus.isReleased && (
           <button
             onClick={handlePrint}
             className="px-6 py-3 rounded-xl font-bold text-slate-800 bg-slate-100 hover:bg-slate-200 transition-colors text-sm flex items-center justify-center gap-2 cursor-pointer shadow-xs min-h-[44px]"
