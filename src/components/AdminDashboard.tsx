@@ -33,9 +33,12 @@ import {
   Lock,
   Unlock,
   AlertTriangle,
-  Sparkles
+  Sparkles,
+  ShieldAlert,
+  Radio,
+  Ban
 } from 'lucide-react';
-import { ExamSubmission, AppSettings, AdminAccount, PacketType } from '../types';
+import { ExamSubmission, AppSettings, AdminAccount, PacketType, ActiveSession } from '../types';
 import { 
   getExamAccessStatus, 
   getScoreReleaseStatus, 
@@ -48,6 +51,9 @@ interface AdminDashboardProps {
   settings: AppSettings;
   onUpdateSettings: (newSettings: Partial<AppSettings>) => void;
   submissions: ExamSubmission[];
+  activeSessions?: ActiveSession[];
+  onUnlockSession?: (sessionId: string) => void;
+  onFinalizeLockedSession?: (session: ActiveSession) => void;
   adminAccounts: AdminAccount[];
   onAddAdmin: (email: string, name: string) => void;
   onDeleteAdmin: (id: string) => void;
@@ -61,6 +67,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   settings,
   onUpdateSettings,
   submissions,
+  activeSessions = [],
+  onUnlockSession,
+  onFinalizeLockedSession,
   adminAccounts,
   onAddAdmin,
   onDeleteAdmin,
@@ -68,7 +77,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   isRealtimeConnected = true,
   lastSyncTime
 }) => {
-  const [activeTab, setActiveTab] = useState<'rekap' | 'analytics' | 'settings' | 'admins' | 'deploy'>('rekap');
+  const [activeTab, setActiveTab] = useState<'rekap' | 'monitor' | 'analytics' | 'settings' | 'admins' | 'deploy'>('rekap');
 
   // Search & Filter state for Marketing Table
   const [searchQuery, setSearchQuery] = useState('');
@@ -80,6 +89,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Modal State for Official Printable Report Card
   const [printingStudent, setPrintingStudent] = useState<ExamSubmission | null>(null);
+
+  // Two-step confirmation for finalizing locked student without admin confirmation
+  const [confirmingFinalizeId, setConfirmingFinalizeId] = useState<string | null>(null);
 
   // New Admin input state (Super Admin only)
   const [newAdminEmail, setNewAdminEmail] = useState('');
@@ -168,6 +180,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     };
   }, [submissions]);
 
+  // Live Active & Locked CBT Sessions (sorted: locked first, then active/unlocked/instructions, then completed/terminated)
+  const lockedSessions = useMemo(
+    () => activeSessions.filter(s => s.status === 'locked'),
+    [activeSessions]
+  );
+
+  const sortedLiveSessions = useMemo(() => {
+    const priority: Record<string, number> = {
+      locked: 0,
+      active: 1,
+      unlocked: 2,
+      instructions: 3,
+      terminated: 4,
+      completed: 5
+    };
+    return [...activeSessions].sort((a, b) => {
+      const pa = priority[a.status || 'active'] ?? 3;
+      const pb = priority[b.status || 'active'] ?? 3;
+      if (pa !== pb) return pa - pb;
+      return (b.updatedAt || '').localeCompare(a.updatedAt || '');
+    });
+  }, [activeSessions]);
+
   // Item 8 & 2: Direct print student result sheet
   const handleDirectPrintStudent = (student: ExamSubmission) => {
     setPrintingStudent(student);
@@ -196,6 +231,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       'Jumlah Benar',
       'Jumlah Salah',
       'Jumlah Kosong',
+      'Status Penyelesaian',
+      'Pelanggaran Keluar (Kali)',
+      'Keterangan Pengawas',
       'Waktu Selesai'
     ];
 
@@ -212,6 +250,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       s.totalCorrect,
       s.totalWrong,
       s.totalBlank,
+      s.completionStatus === 'terminated_violation' ? 'Terkunci (Pelanggaran >3x)' : 'Selesai Normal',
+      s.violationCount ?? 0,
+      `"${(s.terminationReason || '-').replace(/"/g, '""')}"`,
       `"${s.completedAt}"`
     ]);
 
@@ -308,6 +349,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         <th style="text-align: center;">Paket</th>
         <th style="text-align: center;">Nilai B. Indo</th>
         <th style="text-align: center;">Nilai MTK</th>
+        <th>Status &amp; Keterangan</th>
         <th>Waktu Selesai</th>
       </tr>
     </thead>
@@ -322,6 +364,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <td style="text-align: center;">${s.packetType}</td>
           <td style="text-align: center;" class="score-badge">${s.indonesianScore}</td>
           <td style="text-align: center;" class="score-badge">${s.mathScore}</td>
+          <td>${s.completionStatus === 'terminated_violation' ? `<span style="color:#be123c;font-weight:bold;">Terkunci (${s.violationCount || 3}x keluar)</span><br><span style="font-size:10px;color:#881337;">${s.terminationReason || 'Tidak dapat menyelesaikan tes karena keluar dari halaman tes sebanyak 3 kali'}</span>` : '<span style="color:#047857;font-weight:bold;">Selesai Normal</span>'}</td>
           <td>${s.completedAt ? new Date(s.completedAt).toLocaleString('id-ID') : '-'}</td>
         </tr>
       `).join('')}
@@ -457,6 +500,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         </div>
       </div>
 
+      {/* LIVE ALERT BANNER WHEN STUDENTS ARE LOCKED */}
+      {lockedSessions.length > 0 && (
+        <div className="bg-rose-50 border-2 border-rose-400 rounded-2xl p-4 sm:p-5 shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in-50">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <ShieldAlert className="w-5 h-5 animate-pulse" />
+            </div>
+            <div className="space-y-0.5">
+              <h3 className="font-black text-rose-950 text-sm sm:text-base">
+                ⚠️ {lockedSessions.length} Siswa Terkunci Otomatis (Keluar Halaman Tes &gt;3 Kali)
+              </h3>
+              <p className="text-xs text-rose-800">
+                Jawaban mereka telah tersimpan realtime di Firebase dan menunggu konfirmasi Admin untuk dibuka kuncinya atau di-generate otomatis.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab('monitor')}
+            className="px-4 py-2.5 rounded-xl font-bold text-xs bg-rose-600 hover:bg-rose-500 text-white shadow-sm flex items-center gap-2 shrink-0 cursor-pointer transition-all"
+          >
+            <Unlock className="w-4 h-4" />
+            <span>Buka Monitor &amp; Kelola Kunci ({lockedSessions.length})</span>
+          </button>
+        </div>
+      )}
+
       {/* Navigation Tabs - Horizontally scrollable on mobile/tablet, wrap on desktop */}
       <div className="flex items-center gap-2 border-b border-slate-200 pb-2 overflow-x-auto no-scrollbar sm:flex-wrap">
         <button
@@ -469,6 +539,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         >
           <Users className="w-4 h-4" />
           <span>Data Master Peserta ({filteredSubmissions.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('monitor')}
+          className={`flex items-center gap-2 px-3.5 sm:px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all cursor-pointer shrink-0 min-h-[40px] ${
+            activeTab === 'monitor'
+              ? 'bg-blue-700 text-white shadow-md'
+              : lockedSessions.length > 0
+              ? 'bg-rose-50 text-rose-700 border border-rose-300 hover:bg-rose-100'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <Radio className={`w-4 h-4 ${lockedSessions.length > 0 ? 'text-rose-500 animate-pulse' : ''}`} />
+          <span>Monitor Pengawas Live ({activeSessions.length})</span>
+          {lockedSessions.length > 0 && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-600 text-white animate-bounce">
+              {lockedSessions.length} Terkunci
+            </span>
+          )}
         </button>
 
         <button
@@ -618,13 +707,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <th className="py-3.5 px-4 text-center">Paket</th>
                     <th className="py-3.5 px-4 text-center bg-blue-50/50 text-blue-900">Nilai B. Indonesia</th>
                     <th className="py-3.5 px-4 text-center bg-cyan-50/50 text-cyan-900">Nilai Matematika</th>
+                    <th className="py-3.5 px-4">Status &amp; Pengawas</th>
                     <th className="py-3.5 px-4 text-right">Aksi &amp; Cetak</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
                   {filteredSubmissions.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-12 text-center text-slate-400">
+                      <td colSpan={10} className="py-12 text-center text-slate-400">
                         Tidak ada data siswa yang cocok dengan filter.
                       </td>
                     </tr>
@@ -659,6 +749,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <span className="px-2.5 py-1 rounded-lg font-black text-xs bg-cyan-100 text-cyan-800">
                             {s.mathScore}
                           </span>
+                        </td>
+                        <td className="py-3.5 px-4 max-w-[230px]">
+                          {s.completionStatus === 'terminated_violation' ? (
+                            <div className="space-y-1">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-100 text-rose-800 border border-rose-300">
+                                <ShieldAlert className="w-3 h-3 shrink-0" />
+                                <span>Terkunci ({s.violationCount || 3}x keluar)</span>
+                              </span>
+                              <div className="text-[10px] text-rose-700 leading-snug">
+                                {s.terminationReason || 'Tidak dapat menyelesaikan tes karena keluar dari halaman tes sebanyak 3 kali'}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <CheckCircle2 className="w-3 h-3 shrink-0" />
+                              <span>Selesai Normal</span>
+                            </span>
+                          )}
                         </td>
                         <td className="py-3.5 px-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
@@ -711,6 +819,211 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         </td>
                       </tr>
                     ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: MONITOR PENGAWAS LIVE (ANTI-CHEAT & UNLOCK REALTIME) */}
+      {activeTab === 'monitor' && (
+        <div className="space-y-6">
+          {/* Summary cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs space-y-1">
+              <span className="text-xs font-bold text-slate-500 uppercase">Total Sesi Realtime</span>
+              <div className="text-3xl font-black text-slate-900">{activeSessions.length} Siswa</div>
+              <p className="text-xs text-slate-400">Sinkronisasi langsung dari database Firebase</p>
+            </div>
+
+            <div className="bg-white p-5 rounded-3xl border border-emerald-200 shadow-xs space-y-1">
+              <span className="text-xs font-bold text-emerald-700 uppercase">Sedang Mengerjakan</span>
+              <div className="text-3xl font-black text-emerald-700">
+                {activeSessions.filter(s => s.status === 'active' || s.status === 'unlocked').length} Siswa
+              </div>
+              <p className="text-xs text-slate-400">Progres jawaban tersimpan otomatis tiap detik</p>
+            </div>
+
+            <div className={`p-5 rounded-3xl border shadow-xs space-y-1 ${
+              lockedSessions.length > 0 ? 'bg-rose-50 border-rose-300' : 'bg-white border-slate-200'
+            }`}>
+              <span className={`text-xs font-bold uppercase ${lockedSessions.length > 0 ? 'text-rose-700' : 'text-slate-500'}`}>
+                Terkunci (Keluar &gt;3x)
+              </span>
+              <div className={`text-3xl font-black ${lockedSessions.length > 0 ? 'text-rose-700' : 'text-slate-900'}`}>
+                {lockedSessions.length} Siswa
+              </div>
+              <p className="text-xs text-slate-500">Menunggu konfirmasi Admin buka kunci / generate</p>
+            </div>
+          </div>
+
+          {/* Live Monitoring Table */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="p-4 sm:p-5 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm sm:text-base flex items-center gap-2">
+                  <Radio className="w-4 h-4 text-emerald-600 animate-pulse" />
+                  <span>Pemantauan Peserta &amp; Pelanggaran Anti-Kecurangan (Realtime)</span>
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Admin dapat membuka kunci siswa yang terkunci agar bisa melanjutkan ujian, atau langsung men-generate hasil dari jawaban tersimpan.
+                </p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-100 text-slate-600 font-bold uppercase tracking-wider border-b border-slate-200">
+                  <tr>
+                    <th className="py-3.5 px-4">Peserta &amp; Sekolah</th>
+                    <th className="py-3.5 px-4">Tahap &amp; Progres</th>
+                    <th className="py-3.5 px-4 text-center">Keluar Halaman</th>
+                    <th className="py-3.5 px-4">Status Sesi</th>
+                    <th className="py-3.5 px-4">Update Terakhir</th>
+                    <th className="py-3.5 px-4 text-right">Kontrol Pengawas</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {sortedLiveSessions.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center text-slate-400">
+                        Belum ada aktivitas sesi CBT siswa yang tercatat di server realtime.
+                      </td>
+                    </tr>
+                  ) : (
+                    sortedLiveSessions.map((sess) => {
+                      const answeredCount = sess.answeredCount ?? Object.keys(sess.answers || {}).length;
+                      const viol = sess.violationCount ?? 0;
+                      const isLocked = sess.status === 'locked';
+                      const stageLabel =
+                        sess.sessionStage === 'session1_indonesian'
+                          ? 'Sesi 1 (B. Indo)'
+                          : sess.sessionStage === 'break'
+                          ? 'Istirahat'
+                          : sess.sessionStage === 'session2_math'
+                          ? 'Sesi 2 (MTK)'
+                          : 'Persiapan';
+
+                      return (
+                        <tr key={sess.id} className={isLocked ? 'bg-rose-50/70' : 'hover:bg-slate-50'}>
+                          <td className="py-3.5 px-4">
+                            <div className="font-bold text-slate-900 text-sm">{sess.studentName}</div>
+                            <div className="text-[11px] text-slate-500">
+                              {sess.schoolOrigin || '-'} &bull; <span className="font-mono">{sess.studentPhone}</span>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="font-bold text-slate-800">{stageLabel}</div>
+                            <div className="text-[11px] text-blue-700 font-semibold">
+                              {answeredCount} / 60 Soal Terjawab
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 text-center">
+                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-black text-xs border ${
+                              viol === 0
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : viol <= 3
+                                ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                : 'bg-rose-600 text-white border-rose-700'
+                            }`}>
+                              {viol}x Keluar
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            {sess.status === 'locked' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-black bg-rose-100 text-rose-800 border border-rose-300">
+                                <Lock className="w-3 h-3" />
+                                <span>TERKUNCI</span>
+                              </span>
+                            )}
+                            {sess.status === 'active' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                <span>● AKTIF MENGERJAKAN</span>
+                              </span>
+                            )}
+                            {sess.status === 'unlocked' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                                <Unlock className="w-3 h-3" />
+                                <span>DIBUKA ADMIN</span>
+                              </span>
+                            )}
+                            {sess.status === 'instructions' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                                <span>Buka Petunjuk</span>
+                              </span>
+                            )}
+                            {sess.status === 'completed' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-teal-100 text-teal-800 border border-teal-200">
+                                <span>✓ SELESAI</span>
+                              </span>
+                            )}
+                            {sess.status === 'terminated' && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                <Ban className="w-3 h-3" />
+                                <span>DIHENTIKAN (GENERATE)</span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4 text-[11px] text-slate-500 font-mono">
+                            {sess.updatedAt ? new Date(sess.updatedAt).toLocaleTimeString('id-ID') + ' WIB' : '-'}
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            {isLocked ? (
+                              <div className="flex flex-wrap items-center justify-end gap-2">
+                                {onUnlockSession && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onUnlockSession(sess.id)}
+                                    className="px-3 py-1.5 rounded-xl text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs flex items-center gap-1 cursor-pointer transition-all"
+                                  >
+                                    <Unlock className="w-3.5 h-3.5" />
+                                    <span>Buka Kunci &amp; Lanjut</span>
+                                  </button>
+                                )}
+                                {onFinalizeLockedSession && (
+                                  confirmingFinalizeId === sess.id ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          onFinalizeLockedSession(sess);
+                                          setConfirmingFinalizeId(null);
+                                        }}
+                                        className="px-2.5 py-1.5 rounded-xl text-[11px] font-black bg-rose-700 hover:bg-rose-600 text-white shadow-xs cursor-pointer"
+                                      >
+                                        Ya, Generate
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmingFinalizeId(null)}
+                                        className="px-2 py-1.5 rounded-xl text-[11px] font-bold bg-slate-200 hover:bg-slate-300 text-slate-700 cursor-pointer"
+                                      >
+                                        Batal
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmingFinalizeId(sess.id)}
+                                      className="px-3 py-1.5 rounded-xl text-[11px] font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-xs flex items-center gap-1 cursor-pointer transition-all"
+                                    >
+                                      <Zap className="w-3.5 h-3.5" />
+                                      <span>Generate &amp; Akhiri</span>
+                                    </button>
+                                  )
+                                )}
+                              </div>
+                            ) : sess.status === 'active' && onUnlockSession ? (
+                              <span className="text-[11px] text-slate-400">Terpantau Realtime</span>
+                            ) : (
+                              <span className="text-[11px] text-slate-400">-</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -1473,6 +1786,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
 
+              {/* Keterangan Pelanggaran Jika Terkunci Otomatis */}
+              {inspectingStudent.completionStatus === 'terminated_violation' && (
+                <div className="p-4 rounded-2xl bg-rose-50 border border-rose-300 text-xs text-rose-900 flex items-start gap-3">
+                  <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <div className="font-black text-rose-950 uppercase">
+                      Status: Terkunci &amp; Jawaban Di-Generate Otomatis ({inspectingStudent.violationCount || 3}x Keluar Halaman)
+                    </div>
+                    <div>
+                      {inspectingStudent.terminationReason || 'Tidak dapat menyelesaikan tes karena keluar dari halaman tes sebanyak 3 kali'}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Biodata */}
               <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-1.5">
                 <div className="font-bold text-slate-800 uppercase">Kontak &amp; Alamat Siswa:</div>
@@ -1660,6 +1988,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <div>Paket Soal: <span className="font-bold">Tipe {printingStudent.packetType}</span></div>
                 </div>
               </div>
+
+              {printingStudent.completionStatus === 'terminated_violation' && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-300 text-xs text-rose-950 font-semibold">
+                  Keterangan Pengawas ({printingStudent.violationCount || 3}x Keluar Halaman):{' '}
+                  {printingStudent.terminationReason || 'Tidak dapat menyelesaikan tes karena keluar dari halaman tes sebanyak 3 kali'}
+                </div>
+              )}
 
               {/* Separate Subject Scores */}
               <div className="grid grid-cols-2 gap-4 text-center">

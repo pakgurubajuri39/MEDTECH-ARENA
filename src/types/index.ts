@@ -57,6 +57,46 @@ export interface ExamSubmission {
   startedAt: string;
   completedAt: string;
   createdAt?: string;
+  completionStatus?: 'completed' | 'terminated_violation';
+  violationCount?: number;
+  terminationReason?: string;
+}
+
+export type ActiveSessionStatus =
+  | 'instructions'
+  | 'active'
+  | 'locked'
+  | 'unlocked'
+  | 'completed'
+  | 'terminated';
+
+export interface ActiveSession {
+  id: string;
+  studentPhone: string;
+  studentName: string;
+  schoolOrigin: string;
+  homeAddress?: string;
+  parentPhone?: string;
+  packetType: PacketType;
+  answers: Record<number, string>;
+  flagged: Record<number, boolean>;
+  sessionStage?: string;
+  currentIndex?: number;
+  answeredCount?: number;
+  violationCount?: number;
+  status?: ActiveSessionStatus;
+  lockReason?: string;
+  lockedAt?: string;
+  lockDeadlineAt?: string;
+  lastViolationAt?: string;
+  unlockedAt?: string;
+  unlockedBy?: string;
+  session1Remaining?: number;
+  breakRemaining?: number;
+  session2Remaining?: number;
+  completedSubmissionId?: string;
+  registeredAt?: string;
+  updatedAt?: string;
 }
 
 export interface AppSettings {

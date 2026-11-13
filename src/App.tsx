@@ -4,7 +4,8 @@ import {
   StudentProfile, 
   ExamSubmission, 
   AdminAccount, 
-  PacketType 
+  PacketType,
+  ActiveSession
 } from './types';
 import { Navbar } from './components/Navbar';
 import { Footer } from './components/Footer';
@@ -105,6 +106,9 @@ export default function App() {
 
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
 
+  // Master list of all live CBT active sessions for Admin anti-cheat monitor
+  const [activeSessions, setActiveSessions] = useState<ActiveSession[]>([]);
+
   // Real-time Firestore synchronization status
   const [isRealtimeConnected, setIsRealtimeConnected] = useState<boolean>(true);
   const [lastSyncTime, setLastSyncTime] = useState<string>(new Date().toLocaleTimeString('id-ID'));
@@ -182,11 +186,29 @@ export default function App() {
       }
     );
 
+    // 4. Real-time Active Sessions Listener (Live student CBT status & lock monitor)
+    const unsubscribeActiveSessions = onSnapshot(
+      collection(db, 'active_sessions'),
+      (snapshot) => {
+        const list: ActiveSession[] = [];
+        snapshot.forEach(d => {
+          list.push({ id: d.id, ...d.data() } as ActiveSession);
+        });
+        setActiveSessions(list);
+        setIsRealtimeConnected(true);
+        setLastSyncTime(new Date().toLocaleTimeString('id-ID'));
+      },
+      (err) => {
+        handleFirestoreError(err, OperationType.LIST, 'active_sessions');
+      }
+    );
+
     // Cleanup listeners when component unmounts
     return () => {
       unsubscribeSettings();
       unsubscribeSubmissions();
       unsubscribeAdmins();
+      unsubscribeActiveSessions();
     };
   }, []);
 
@@ -201,23 +223,54 @@ export default function App() {
 
   // Handle student registration form proceed
   const handleProfileProceed = async (profile: StudentProfile) => {
+    const prevPhone = studentProfile?.studentPhone;
+    const isDifferentStudent = prevPhone && prevPhone !== profile.studentPhone;
+
+    if (isDifferentStudent) {
+      localStorage.removeItem('tka_session_stage');
+      localStorage.removeItem('tka_current_index');
+      localStorage.removeItem('tka_session1_time');
+      localStorage.removeItem('tka_break_time');
+      localStorage.removeItem('tka_session2_time');
+      localStorage.removeItem('tka_cbt_answers');
+      localStorage.removeItem('tka_cbt_flagged');
+      localStorage.removeItem('tka_violation_count');
+      localStorage.removeItem('tka_exam_locked');
+      localStorage.removeItem('tka_lock_deadline');
+    }
+
     setStudentProfile(profile);
     localStorage.setItem('tka_student_profile', JSON.stringify(profile));
     setCurrentView('instructions');
 
     try {
       const sanitizedPhone = profile.studentPhone.replace(/[^a-zA-Z0-9]/g, '') || `id_${Date.now()}`;
-      await setDoc(doc(db, 'active_sessions', `sess_${sanitizedPhone}`), {
+      const sessionRef = doc(db, 'active_sessions', `sess_${sanitizedPhone}`);
+      const existingSnap = await getDoc(sessionRef);
+      const existingData = existingSnap.exists() ? (existingSnap.data() as Partial<ActiveSession>) : null;
+
+      // Keep existing lock state if student attempts to re-register while locked
+      const isCurrentlyLocked = existingData?.status === 'locked';
+
+      await setDoc(sessionRef, {
         studentPhone: profile.studentPhone,
         studentName: profile.fullName,
         schoolOrigin: profile.schoolOrigin,
         homeAddress: profile.homeAddress,
         parentPhone: profile.parentPhone,
         packetType: settings.activePacketType,
-        sessionStage: 'instructions',
-        answers: {},
-        flagged: {},
-        registeredAt: new Date().toISOString(),
+        ...(isCurrentlyLocked
+          ? {}
+          : {
+              status: 'instructions',
+              sessionStage: 'instructions',
+              answers: {},
+              flagged: {},
+              violationCount: 0,
+              answeredCount: 0,
+              lockReason: ''
+            }),
+        registeredAt: existingData?.registeredAt || new Date().toISOString(),
         updatedAt: new Date().toISOString()
       }, { merge: true });
       console.log('⚡ Student registration synced to Firebase active_sessions');
@@ -231,16 +284,24 @@ export default function App() {
     setCurrentView('cbt');
   };
 
-  // Handle final CBT submission
+  // Handle final CBT submission (normal completion or violation auto-generate)
   const handleSubmitExam = async (
     answers: Record<number, string>,
-    flagged: Record<number, boolean>
+    flagged: Record<number, boolean>,
+    meta?: {
+      completionStatus?: 'completed' | 'terminated_violation';
+      violationCount?: number;
+      terminationReason?: string;
+    }
   ) => {
     if (!studentProfile) return;
 
     const evalResult = evaluateExam(settings.activePacketType, answers);
     const submissionId = `sub_${Date.now()}`;
     const nowIso = new Date().toISOString();
+    const completionStatus = meta?.completionStatus || 'completed';
+    const violationCount = meta?.violationCount ?? 0;
+    const terminationReason = meta?.terminationReason || '';
 
     const newSubmission: ExamSubmission = {
       id: submissionId,
@@ -261,15 +322,18 @@ export default function App() {
       recommendations: evalResult.recommendations,
       startedAt: nowIso,
       completedAt: nowIso,
-      createdAt: new Date().toLocaleString('id-ID')
+      createdAt: new Date().toLocaleString('id-ID'),
+      completionStatus,
+      violationCount,
+      terminationReason
     };
 
     // Save locally
     setCurrentSubmission(newSubmission);
     localStorage.setItem('tka_last_submission', JSON.stringify(newSubmission));
-    
+
     setSubmissions(prev => {
-      const updated = [newSubmission, ...prev];
+      const updated = [newSubmission, ...prev.filter(item => item.id !== submissionId)];
       localStorage.setItem('tka_all_submissions', JSON.stringify(updated));
       return updated;
     });
@@ -294,15 +358,20 @@ export default function App() {
         recommendations: newSubmission.recommendations,
         startedAt: newSubmission.startedAt,
         completedAt: newSubmission.completedAt,
-        createdAt: nowIso
+        createdAt: nowIso,
+        completionStatus,
+        violationCount,
+        terminationReason
       });
       console.log('Submission successfully persisted to Firebase Firestore!');
 
-      // Mark session as completed in active_sessions
+      // Mark session status in active_sessions
       const sanitizedPhone = studentProfile.studentPhone.replace(/[^a-zA-Z0-9]/g, '') || 'guest';
       await setDoc(doc(db, 'active_sessions', `sess_${sanitizedPhone}`), {
-        status: 'completed',
+        status: completionStatus === 'terminated_violation' ? 'terminated' : 'completed',
         completedSubmissionId: submissionId,
+        violationCount,
+        lockReason: terminationReason,
         updatedAt: nowIso
       }, { merge: true });
     } catch (error) {
@@ -310,6 +379,85 @@ export default function App() {
     }
 
     setCurrentView('result');
+  };
+
+  // Handle remote exam termination triggered by Admin from dashboard
+  const handleRemoteTerminated = (submission: ExamSubmission) => {
+    setCurrentSubmission(submission);
+    localStorage.setItem('tka_last_submission', JSON.stringify(submission));
+    setSubmissions(prev => {
+      const exists = prev.some(s => s.id === submission.id);
+      if (exists) return prev;
+      const updated = [submission, ...prev];
+      localStorage.setItem('tka_all_submissions', JSON.stringify(updated));
+      return updated;
+    });
+    setCurrentView('result');
+  };
+
+  // Admin: Unlock a locked student session in real-time so student can continue
+  const handleUnlockSession = async (sessionId: string) => {
+    const nowIso = new Date().toISOString();
+    try {
+      await setDoc(doc(db, 'active_sessions', sessionId), {
+        status: 'unlocked',
+        violationCount: 0,
+        lockReason: '',
+        lockDeadlineAt: '',
+        unlockedAt: nowIso,
+        unlockedBy: adminUser?.email || 'Admin',
+        updatedAt: nowIso
+      }, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `active_sessions/${sessionId}`);
+    }
+  };
+
+  // Admin: Force-generate submission for a locked student session (unconfirmed / finalized)
+  const handleFinalizeLockedSession = async (session: ActiveSession) => {
+    const packet = session.packetType || settings.activePacketType;
+    const sessionAnswers = session.answers || {};
+    const evalResult = evaluateExam(packet, sessionAnswers);
+    const submissionId = `sub_${Date.now()}`;
+    const nowIso = new Date().toISOString();
+    const terminationReason = 'Tidak dapat menyelesaikan tes karena keluar dari halaman tes sebanyak 3 kali';
+
+    const newSubmission: ExamSubmission = {
+      id: submissionId,
+      studentName: session.studentName,
+      schoolOrigin: session.schoolOrigin || '-',
+      homeAddress: session.homeAddress || '-',
+      studentPhone: session.studentPhone,
+      parentPhone: session.parentPhone || session.studentPhone,
+      packetType: packet,
+      totalScore: evalResult.totalScore,
+      indonesianScore: evalResult.indonesianScore,
+      mathScore: evalResult.mathScore,
+      totalCorrect: evalResult.totalCorrect,
+      totalWrong: evalResult.totalWrong,
+      totalBlank: evalResult.totalBlank,
+      answers: sessionAnswers,
+      subTopicAnalysis: evalResult.subTopicAnalysis,
+      recommendations: evalResult.recommendations,
+      startedAt: session.registeredAt || nowIso,
+      completedAt: nowIso,
+      createdAt: nowIso,
+      completionStatus: 'terminated_violation',
+      violationCount: session.violationCount || 3,
+      terminationReason
+    };
+
+    try {
+      await setDoc(doc(db, 'submissions', submissionId), newSubmission);
+      await setDoc(doc(db, 'active_sessions', session.id), {
+        status: 'terminated',
+        completedSubmissionId: submissionId,
+        lockReason: terminationReason,
+        updatedAt: nowIso
+      }, { merge: true });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, `submissions/${submissionId}`);
+    }
   };
 
   // Update App Settings
@@ -425,6 +573,7 @@ export default function App() {
             profile={studentProfile}
             settings={settings}
             onSubmitExam={handleSubmitExam}
+            onRemoteTerminated={handleRemoteTerminated}
           />
         )}
 
@@ -442,6 +591,9 @@ export default function App() {
             settings={settings}
             onUpdateSettings={handleUpdateSettings}
             submissions={submissions}
+            activeSessions={activeSessions}
+            onUnlockSession={handleUnlockSession}
+            onFinalizeLockedSession={handleFinalizeLockedSession}
             adminAccounts={adminAccounts}
             onAddAdmin={handleAddAdmin}
             onDeleteAdmin={handleDeleteAdmin}

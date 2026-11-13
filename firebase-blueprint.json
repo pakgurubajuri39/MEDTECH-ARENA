@@ -22,7 +22,10 @@
         "subTopicAnalysis": { "type": "object", "description": "Analisis penguasaan materi per topik" },
         "startedAt": { "type": "string", "description": "Waktu mulai tes" },
         "completedAt": { "type": "string", "description": "Waktu selesai tes" },
-        "createdAt": { "type": "string", "description": "Waktu tersimpan di server" }
+        "createdAt": { "type": "string", "description": "Waktu tersimpan di server" },
+        "completionStatus": { "type": "string", "description": "Status penyelesaian ujian (completed atau terminated_violation)" },
+        "violationCount": { "type": "number", "description": "Jumlah pelanggaran keluar dari halaman ujian" },
+        "terminationReason": { "type": "string", "description": "Keterangan penghentian tes akibat pelanggaran" }
       },
       "required": ["studentName", "schoolOrigin", "studentPhone", "parentPhone", "packetType", "totalScore"]
     },
@@ -62,15 +65,29 @@
     },
     "ActiveSession": {
       "title": "ActiveSession",
-      "description": "Progress pengerjaan CBT realtime siswa yang sedang berlangsung",
+      "description": "Progress pengerjaan CBT realtime siswa yang sedang berlangsung beserta status penguncian anti-kecurangan",
       "type": "object",
       "properties": {
         "studentPhone": { "type": "string", "description": "Nomor HP siswa sebagai ID unik" },
         "studentName": { "type": "string", "description": "Nama siswa" },
+        "schoolOrigin": { "type": "string", "description": "Asal sekolah SMP siswa" },
         "answers": { "type": "object", "description": "Pilihan jawaban saat ini" },
         "flagged": { "type": "object", "description": "Soal ditandai ragu-ragu" },
-        "stage": { "type": "string", "description": "Sesi aktif" },
-        "lastUpdated": { "type": "string", "description": "Timestamp update terakhir" }
+        "sessionStage": { "type": "string", "description": "Tahap sesi aktif (instructions, session1_indonesian, break, session2_math)" },
+        "currentIndex": { "type": "number", "description": "Indeks soal yang sedang dibuka" },
+        "answeredCount": { "type": "number", "description": "Jumlah soal yang telah dijawab" },
+        "violationCount": { "type": "number", "description": "Jumlah pelanggaran meninggalkan halaman tes" },
+        "status": { "type": "string", "description": "Status sesi realtime: instructions, active, locked, unlocked, completed, terminated" },
+        "lockReason": { "type": "string", "description": "Alasan penguncian sesi ujian" },
+        "lockedAt": { "type": "string", "description": "Waktu sesi dikunci otomatis" },
+        "lockDeadlineAt": { "type": "string", "description": "Batas waktu konfirmasi admin sebelum auto-generate" },
+        "unlockedAt": { "type": "string", "description": "Waktu admin membuka kunci" },
+        "unlockedBy": { "type": "string", "description": "Email admin yang membuka kunci" },
+        "session1Remaining": { "type": "number", "description": "Sisa waktu sesi 1 (detik)" },
+        "breakRemaining": { "type": "number", "description": "Sisa waktu istirahat (detik)" },
+        "session2Remaining": { "type": "number", "description": "Sisa waktu sesi 2 (detik)" },
+        "completedSubmissionId": { "type": "string", "description": "ID submission jika tes selesai atau di-generate" },
+        "updatedAt": { "type": "string", "description": "Timestamp update terakhir" }
       },
       "required": ["studentPhone", "studentName"]
     }

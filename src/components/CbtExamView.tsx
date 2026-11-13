@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Clock, 
   ChevronLeft, 
@@ -17,25 +17,43 @@ import {
   Coffee,
   Sparkles,
   ArrowRight,
-  Cloud
+  Cloud,
+  ShieldAlert,
+  ShieldCheck,
+  Unlock,
+  Phone,
+  Ban
 } from 'lucide-react';
-import { Question, StudentProfile, AppSettings } from '../types';
-import { db, doc, setDoc } from '../firebase';
+import { Question, StudentProfile, AppSettings, ExamSubmission, ActiveSession } from '../types';
+import { db, doc, setDoc, getDoc, onSnapshot } from '../firebase';
 
 interface CbtExamViewProps {
   questions: Question[];
   profile: StudentProfile;
   settings: AppSettings;
-  onSubmitExam: (answers: Record<number, string>, flagged: Record<number, boolean>) => void;
+  onSubmitExam: (
+    answers: Record<number, string>,
+    flagged: Record<number, boolean>,
+    meta?: {
+      completionStatus?: 'completed' | 'terminated_violation';
+      violationCount?: number;
+      terminationReason?: string;
+    }
+  ) => void;
+  onRemoteTerminated?: (submission: ExamSubmission) => void;
 }
 
 type SessionStage = 'session1_indonesian' | 'break' | 'session2_math';
+
+const MAX_VIOLATIONS = 3; // Peringatan untuk ke-1, ke-2, ke-3; lebih dari 3 (>3) terkunci otomatis
+const LOCK_CONFIRMATION_TIMEOUT_SEC = 120; // 2 menit batas tunggu konfirmasi Admin sebelum auto-generate
 
 export const CbtExamView: React.FC<CbtExamViewProps> = ({
   questions,
   profile,
   settings,
-  onSubmitExam
+  onSubmitExam,
+  onRemoteTerminated
 }) => {
   // Session Stage State
   const [sessionStage, setSessionStage] = useState<SessionStage>(() => {
@@ -126,6 +144,89 @@ export const CbtExamView: React.FC<CbtExamViewProps> = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [lockedAlert, setLockedAlert] = useState<string | null>(null);
 
+  // Anti-cheat & Focus Lock States
+  const [violationCount, setViolationCount] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('tka_violation_count');
+      return saved ? parseInt(saved, 10) : 0;
+    } catch {
+      return 0;
+    }
+  });
+  const [isExamLocked, setIsExamLocked] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('tka_exam_locked') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [warningModalCount, setWarningModalCount] = useState<number | null>(null);
+  const [unlockToast, setUnlockToast] = useState<string | null>(null);
+  const [lockWaitRemaining, setLockWaitRemaining] = useState<number>(() => {
+    try {
+      const deadline = localStorage.getItem('tka_lock_deadline');
+      if (deadline) {
+        const diff = Math.ceil((parseInt(deadline, 10) - Date.now()) / 1000);
+        return Math.max(0, Math.min(LOCK_CONFIRMATION_TIMEOUT_SEC, diff));
+      }
+    } catch {}
+    return LOCK_CONFIRMATION_TIMEOUT_SEC;
+  });
+
+  // Live Refs to prevent stale closures inside event listeners & Firestore snapshots
+  const answersRef = useRef(answers);
+  const flaggedRef = useRef(flagged);
+  const sessionStageRef = useRef(sessionStage);
+  const currentIndexRef = useRef(currentIndex);
+  const session1Ref = useRef(session1Remaining);
+  const breakRef = useRef(breakRemaining);
+  const session2Ref = useRef(session2Remaining);
+  const violationCountRef = useRef(violationCount);
+  const isExamLockedRef = useRef(isExamLocked);
+  const isTerminatedRef = useRef(false);
+  const lastViolationTimestampRef = useRef(0);
+  const fullscreenSuppressUntilRef = useRef(0);
+
+  useEffect(() => { answersRef.current = answers; }, [answers]);
+  useEffect(() => { flaggedRef.current = flagged; }, [flagged]);
+  useEffect(() => { sessionStageRef.current = sessionStage; }, [sessionStage]);
+  useEffect(() => { currentIndexRef.current = currentIndex; }, [currentIndex]);
+  useEffect(() => { session1Ref.current = session1Remaining; }, [session1Remaining]);
+  useEffect(() => { breakRef.current = breakRemaining; }, [breakRemaining]);
+  useEffect(() => { session2Ref.current = session2Remaining; }, [session2Remaining]);
+  useEffect(() => { violationCountRef.current = violationCount; }, [violationCount]);
+  useEffect(() => { isExamLockedRef.current = isExamLocked; }, [isExamLocked]);
+
+  const sanitizedSessionId = `sess_${profile?.studentPhone?.replace(/[^a-zA-Z0-9]/g, '') || 'guest'}`;
+
+  const clearAllExamLocalStorage = () => {
+    localStorage.removeItem('tka_session_stage');
+    localStorage.removeItem('tka_current_index');
+    localStorage.removeItem('tka_session1_time');
+    localStorage.removeItem('tka_break_time');
+    localStorage.removeItem('tka_session2_time');
+    localStorage.removeItem('tka_cbt_answers');
+    localStorage.removeItem('tka_cbt_flagged');
+    localStorage.removeItem('tka_violation_count');
+    localStorage.removeItem('tka_exam_locked');
+    localStorage.removeItem('tka_lock_deadline');
+  };
+
+  // Helper to immediately finalize exam due to >3 violations without admin confirmation
+  const triggerViolationAutoGenerate = () => {
+    if (isTerminatedRef.current) return;
+    isTerminatedRef.current = true;
+    const finalViolationCount = violationCountRef.current || 4;
+    const finalAnswers = answersRef.current;
+    const finalFlagged = flaggedRef.current;
+    clearAllExamLocalStorage();
+    onSubmitExam(finalAnswers, finalFlagged, {
+      completionStatus: 'terminated_violation',
+      violationCount: finalViolationCount,
+      terminationReason: 'Tidak dapat menyelesaikan tes karena keluar dari halaman tes sebanyak 3 kali'
+    });
+  };
+
   // Sync stage to localStorage
   useEffect(() => {
     localStorage.setItem('tka_session_stage', sessionStage);
@@ -141,24 +242,268 @@ export const CbtExamView: React.FC<CbtExamViewProps> = ({
     localStorage.setItem('tka_cbt_flagged', JSON.stringify(flagged));
   }, [flagged]);
 
+  // REAL-TIME LISTENER FOR ADMIN UNLOCK OR REMOTE FINALIZE ON ACTIVE_SESSIONS
+  useEffect(() => {
+    if (!profile?.studentPhone) return;
+
+    const sessionDocRef = doc(db, 'active_sessions', sanitizedSessionId);
+    const unsubscribe = onSnapshot(sessionDocRef, async (snapshot) => {
+      if (!snapshot.exists() || isTerminatedRef.current) return;
+      const remote = snapshot.data() as Partial<ActiveSession>;
+
+      // 1. If session in Firebase is locked (e.g. after browser refresh while locked)
+      if (remote.status === 'locked') {
+        if (!isExamLockedRef.current) {
+          isExamLockedRef.current = true;
+          setIsExamLocked(true);
+          localStorage.setItem('tka_exam_locked', 'true');
+        }
+        if (typeof remote.violationCount === 'number' && remote.violationCount > violationCountRef.current) {
+          violationCountRef.current = remote.violationCount;
+          setViolationCount(remote.violationCount);
+          localStorage.setItem('tka_violation_count', String(remote.violationCount));
+        }
+        if (remote.lockDeadlineAt) {
+          const ms = new Date(remote.lockDeadlineAt).getTime();
+          if (!Number.isNaN(ms)) {
+            localStorage.setItem('tka_lock_deadline', String(ms));
+            const rem = Math.max(0, Math.ceil((ms - Date.now()) / 1000));
+            setLockWaitRemaining(rem);
+          }
+        }
+      }
+
+      // 2. If Admin unlocked the session in real-time -> resume exam immediately!
+      if (remote.status === 'unlocked') {
+        isExamLockedRef.current = false;
+        setIsExamLocked(false);
+        setWarningModalCount(null);
+        violationCountRef.current = 0;
+        setViolationCount(0);
+        localStorage.removeItem('tka_exam_locked');
+        localStorage.removeItem('tka_lock_deadline');
+        localStorage.setItem('tka_violation_count', '0');
+
+        setUnlockToast(
+          `Kunci telah dibuka oleh Admin${remote.unlockedBy ? ` (${remote.unlockedBy})` : ''}! Silakan lanjutkan pengerjaan ujian.`
+        );
+        setTimeout(() => setUnlockToast(null), 6000);
+
+        // Acknowledge back to 'active' in Firestore
+        try {
+          await setDoc(sessionDocRef, {
+            status: 'active',
+            violationCount: 0,
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+        } catch {}
+      }
+
+      // 3. If Admin generated/finalized the locked session remotely -> redirect straight to Result!
+      if (remote.status === 'terminated' && remote.completedSubmissionId && !isTerminatedRef.current) {
+        isTerminatedRef.current = true;
+        try {
+          const subSnap = await getDoc(doc(db, 'submissions', remote.completedSubmissionId));
+          clearAllExamLocalStorage();
+          if (subSnap.exists() && onRemoteTerminated) {
+            onRemoteTerminated({ id: subSnap.id, ...subSnap.data() } as ExamSubmission);
+          } else {
+            onSubmitExam(answersRef.current, flaggedRef.current, {
+              completionStatus: 'terminated_violation',
+              violationCount: remote.violationCount || violationCountRef.current || 3,
+              terminationReason: 'Tidak dapat menyelesaikan tes karena keluar dari halaman tes sebanyak 3 kali'
+            });
+          }
+        } catch {
+          clearAllExamLocalStorage();
+          onSubmitExam(answersRef.current, flaggedRef.current, {
+            completionStatus: 'terminated_violation',
+            violationCount: remote.violationCount || violationCountRef.current || 3,
+            terminationReason: 'Tidak dapat menyelesaikan tes karena keluar dari halaman tes sebanyak 3 kali'
+          });
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [sanitizedSessionId, profile?.studentPhone]);
+
+  // ANTI-CHEAT: DETECT LEAVING PAGE / TAB SWITCHING / WINDOW BLUR / BACK BUTTON
+  useEffect(() => {
+    if (!profile?.studentPhone) return;
+
+    // Push guard state so pressing Back button triggers popstate instead of leaving CBT
+    window.history.pushState({ cbtGuard: true }, '', window.location.href);
+
+    const recordDepartureViolation = async () => {
+      if (isTerminatedRef.current || isExamLockedRef.current) return;
+
+      const now = Date.now();
+      if (now < fullscreenSuppressUntilRef.current) return;
+      if (now - lastViolationTimestampRef.current < 1500) return; // debounce rapid blur+visibilitychange
+      lastViolationTimestampRef.current = now;
+
+      const nextCount = violationCountRef.current + 1;
+      violationCountRef.current = nextCount;
+      setViolationCount(nextCount);
+      localStorage.setItem('tka_violation_count', String(nextCount));
+
+      const nowIso = new Date().toISOString();
+      const sessionDocRef = doc(db, 'active_sessions', sanitizedSessionId);
+
+      if (nextCount <= MAX_VIOLATIONS) {
+        // Peringatan ke-1, ke-2, ke-3
+        setWarningModalCount(nextCount);
+
+        try {
+          await setDoc(sessionDocRef, {
+            studentPhone: profile.studentPhone,
+            studentName: profile.fullName,
+            schoolOrigin: profile.schoolOrigin,
+            homeAddress: profile.homeAddress,
+            parentPhone: profile.parentPhone,
+            packetType: settings.activePacketType,
+            answers: answersRef.current,
+            flagged: flaggedRef.current,
+            sessionStage: sessionStageRef.current,
+            currentIndex: currentIndexRef.current,
+            answeredCount: Object.keys(answersRef.current).length,
+            violationCount: nextCount,
+            status: 'active',
+            lastViolationAt: nowIso,
+            session1Remaining: session1Ref.current,
+            breakRemaining: breakRef.current,
+            session2Remaining: session2Ref.current,
+            updatedAt: nowIso
+          }, { merge: true });
+        } catch {}
+      } else {
+        // Lebih dari 3 kali (> 3) -> OTOMATIS TERKUNCI & SIMPAN JAWABAN REALTIME KE DATABASE
+        const deadlineMs = Date.now() + LOCK_CONFIRMATION_TIMEOUT_SEC * 1000;
+        const deadlineIso = new Date(deadlineMs).toISOString();
+
+        setWarningModalCount(null);
+        isExamLockedRef.current = true;
+        setIsExamLocked(true);
+        setLockWaitRemaining(LOCK_CONFIRMATION_TIMEOUT_SEC);
+        localStorage.setItem('tka_exam_locked', 'true');
+        localStorage.setItem('tka_lock_deadline', String(deadlineMs));
+
+        try {
+          await setDoc(sessionDocRef, {
+            studentPhone: profile.studentPhone,
+            studentName: profile.fullName,
+            schoolOrigin: profile.schoolOrigin,
+            homeAddress: profile.homeAddress,
+            parentPhone: profile.parentPhone,
+            packetType: settings.activePacketType,
+            answers: answersRef.current,
+            flagged: flaggedRef.current,
+            sessionStage: sessionStageRef.current,
+            currentIndex: currentIndexRef.current,
+            answeredCount: Object.keys(answersRef.current).length,
+            violationCount: nextCount,
+            status: 'locked',
+            lockReason: 'Keluar dari halaman tes lebih dari 3 kali',
+            lockedAt: nowIso,
+            lockDeadlineAt: deadlineIso,
+            lastViolationAt: nowIso,
+            session1Remaining: session1Ref.current,
+            breakRemaining: breakRef.current,
+            session2Remaining: session2Ref.current,
+            updatedAt: nowIso
+          }, { merge: true });
+        } catch {}
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        recordDepartureViolation();
+      }
+    };
+
+    const handleWindowBlur = () => {
+      recordDepartureViolation();
+    };
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!isTerminatedRef.current && !isExamLockedRef.current) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+
+    const handlePopState = () => {
+      if (!isTerminatedRef.current) {
+        window.history.pushState({ cbtGuard: true }, '', window.location.href);
+        recordDepartureViolation();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleWindowBlur);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleWindowBlur);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [sanitizedSessionId, profile, settings.activePacketType]);
+
+  // COUNTDOWN WHEN LOCKED WAITING FOR ADMIN CONFIRMATION -> AUTO-GENERATE IF UNCONFIRMED
+  useEffect(() => {
+    if (!isExamLocked || isTerminatedRef.current) return;
+
+    if (!localStorage.getItem('tka_lock_deadline')) {
+      const deadlineMs = Date.now() + LOCK_CONFIRMATION_TIMEOUT_SEC * 1000;
+      localStorage.setItem('tka_lock_deadline', String(deadlineMs));
+      setLockWaitRemaining(LOCK_CONFIRMATION_TIMEOUT_SEC);
+    }
+
+    const timer = setInterval(() => {
+      const deadlineStr = localStorage.getItem('tka_lock_deadline');
+      const deadlineMs = deadlineStr ? parseInt(deadlineStr, 10) : Date.now();
+      const remaining = Math.max(0, Math.ceil((deadlineMs - Date.now()) / 1000));
+      setLockWaitRemaining(remaining);
+
+      if (remaining <= 0) {
+        clearInterval(timer);
+        triggerViolationAutoGenerate();
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [isExamLocked]);
+
   // REAL-TIME AUTO-SAVE TO FIREBASE BACKEND
   const [cloudSyncedTime, setCloudSyncedTime] = useState<string>('');
   useEffect(() => {
-    if (!profile?.studentPhone) return;
-    const sanitizedId = `sess_${profile.studentPhone.replace(/[^a-zA-Z0-9]/g, '') || 'guest'}`;
+    if (!profile?.studentPhone || isExamLocked || isTerminatedRef.current) return;
 
     const timeout = setTimeout(async () => {
+      if (isExamLockedRef.current || isTerminatedRef.current) return;
       try {
-        await setDoc(doc(db, 'active_sessions', sanitizedId), {
+        await setDoc(doc(db, 'active_sessions', sanitizedSessionId), {
           studentPhone: profile.studentPhone,
           studentName: profile.fullName,
           schoolOrigin: profile.schoolOrigin,
+          homeAddress: profile.homeAddress,
+          parentPhone: profile.parentPhone,
           packetType: settings.activePacketType,
           answers,
           flagged,
           sessionStage,
           currentIndex,
           answeredCount: Object.keys(answers).length,
+          violationCount: violationCountRef.current,
+          status: 'active',
+          session1Remaining: session1Ref.current,
+          breakRemaining: breakRef.current,
+          session2Remaining: session2Ref.current,
           updatedAt: new Date().toISOString()
         }, { merge: true });
         setCloudSyncedTime(new Date().toLocaleTimeString('id-ID'));
@@ -168,11 +513,11 @@ export const CbtExamView: React.FC<CbtExamViewProps> = ({
     }, 1000);
 
     return () => clearTimeout(timeout);
-  }, [answers, flagged, sessionStage, currentIndex, profile, settings.activePacketType]);
+  }, [answers, flagged, sessionStage, currentIndex, profile, settings.activePacketType, isExamLocked, sanitizedSessionId]);
 
-  // TIMER FOR SESSION 1 (BAHASA INDONESIA)
+  // TIMER FOR SESSION 1 (BAHASA INDONESIA) - paused when locked
   useEffect(() => {
-    if (sessionStage !== 'session1_indonesian') return;
+    if (sessionStage !== 'session1_indonesian' || isExamLocked) return;
 
     if (session1Remaining <= 0) {
       handleCompleteSession1();
@@ -193,11 +538,11 @@ export const CbtExamView: React.FC<CbtExamViewProps> = ({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [sessionStage, session1Remaining]);
+  }, [sessionStage, session1Remaining, isExamLocked]);
 
-  // TIMER FOR BREAK (2 MENIT)
+  // TIMER FOR BREAK (2 MENIT) - paused when locked
   useEffect(() => {
-    if (sessionStage !== 'break') return;
+    if (sessionStage !== 'break' || isExamLocked) return;
 
     if (breakRemaining <= 0) {
       handleStartSession2();
@@ -218,11 +563,11 @@ export const CbtExamView: React.FC<CbtExamViewProps> = ({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [sessionStage, breakRemaining]);
+  }, [sessionStage, breakRemaining, isExamLocked]);
 
-  // TIMER FOR SESSION 2 (MATEMATIKA)
+  // TIMER FOR SESSION 2 (MATEMATIKA) - paused when locked
   useEffect(() => {
-    if (sessionStage !== 'session2_math') return;
+    if (sessionStage !== 'session2_math' || isExamLocked) return;
 
     if (session2Remaining <= 0) {
       handleFinalSubmit();
@@ -243,7 +588,7 @@ export const CbtExamView: React.FC<CbtExamViewProps> = ({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [sessionStage, session2Remaining]);
+  }, [sessionStage, session2Remaining, isExamLocked]);
 
   // Transition from Session 1 to Break
   const handleCompleteSession1 = () => {
@@ -354,18 +699,18 @@ export const CbtExamView: React.FC<CbtExamViewProps> = ({
   };
 
   const handleFinalSubmit = () => {
-    localStorage.removeItem('tka_session_stage');
-    localStorage.removeItem('tka_current_index');
-    localStorage.removeItem('tka_session1_time');
-    localStorage.removeItem('tka_break_time');
-    localStorage.removeItem('tka_session2_time');
-    localStorage.removeItem('tka_cbt_answers');
-    localStorage.removeItem('tka_cbt_flagged');
-
-    onSubmitExam(answers, flagged);
+    if (isTerminatedRef.current) return;
+    isTerminatedRef.current = true;
+    clearAllExamLocalStorage();
+    onSubmitExam(answers, flagged, {
+      completionStatus: 'completed',
+      violationCount: violationCountRef.current,
+      terminationReason: ''
+    });
   };
 
   const toggleFullscreen = () => {
+    fullscreenSuppressUntilRef.current = Date.now() + 1000;
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen().catch(() => {});
       setIsFullscreen(true);
@@ -419,11 +764,144 @@ export const CbtExamView: React.FC<CbtExamViewProps> = ({
   const currentIsFlagged = !!flagged[currentQuestion?.id];
 
   // ==========================================
+  // SHARED ANTI-CHEAT OVERLAYS (WARNING & LOCK)
+  // ==========================================
+  const antiCheatOverlays = (
+    <>
+      {/* GREEN TOAST WHEN ADMIN UNLOCKS SESSION */}
+      {unlockToast && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[60] bg-emerald-700 text-white border border-emerald-400 px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 text-xs sm:text-sm font-bold animate-in slide-in-from-top-4">
+          <Unlock className="w-4 h-4 text-emerald-200 shrink-0" />
+          <span>{unlockToast}</span>
+        </div>
+      )}
+
+      {/* WARNING MODAL (PELANGGARAN 1 - 3) */}
+      {warningModalCount !== null && !isExamLocked && (
+        <div className="fixed inset-0 z-[70] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="max-w-md w-full bg-white rounded-3xl p-6 sm:p-8 shadow-2xl border-2 border-amber-400 space-y-5 animate-in zoom-in-95">
+            <div className="text-center space-y-3">
+              <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center mx-auto shadow-sm border border-amber-200">
+                <ShieldAlert className="w-9 h-9 animate-pulse" />
+              </div>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold uppercase bg-rose-100 text-rose-800 border border-rose-300">
+                <span>Peringatan Ke-{warningModalCount} Dari {MAX_VIOLATIONS}</span>
+              </div>
+              <h3 className="text-xl font-black text-slate-900">
+                Dilarang Meninggalkan Halaman Tes!
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                Sistem mendeteksi Anda meninggalkan halaman ujian, berpindah tab, atau membuka aplikasi lain.{' '}
+                {warningModalCount >= MAX_VIOLATIONS ? (
+                  <strong className="text-rose-700">
+                    Ini adalah PERINGATAN TERAKHIR! Jika keluar sekali lagi (lebih dari 3 kali), ujian akan OTOMATIS TERKUNCI dan jawaban Anda langsung disimpan ke server.
+                  </strong>
+                ) : (
+                  <span>
+                    Jika pelanggaran mencapai lebih dari <strong>3 kali</strong>, ujian akan otomatis terkunci.
+                  </span>
+                )}
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs font-bold">
+              <span className="text-slate-600">Total Pelanggaran Tercatat:</span>
+              <span className="px-2.5 py-1 rounded-lg bg-rose-100 text-rose-800 border border-rose-200">
+                {warningModalCount} / {MAX_VIOLATIONS}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setWarningModalCount(null)}
+              className="w-full py-3.5 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-600 hover:to-indigo-600 shadow-lg cursor-pointer transition-all"
+            >
+              Saya Mengerti &amp; Lanjutkan Tes
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* FULLSCREEN LOCK OVERLAY (> 3 VIOLATIONS) */}
+      {isExamLocked && (
+        <div className="fixed inset-0 z-[80] bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="max-w-lg w-full bg-white rounded-3xl p-6 sm:p-8 shadow-2xl border-2 border-rose-500 space-y-6 my-4 animate-in zoom-in-95">
+            <div className="text-center space-y-3">
+              <div className="w-20 h-20 rounded-3xl bg-rose-100 text-rose-700 flex items-center justify-center mx-auto shadow-md border border-rose-200">
+                <Lock className="w-10 h-10" />
+              </div>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-black uppercase bg-rose-600 text-white">
+                <Ban className="w-3.5 h-3.5" />
+                <span>Ujian Otomatis Terkunci</span>
+              </span>
+              <h2 className="text-xl sm:text-2xl font-black text-slate-900">
+                Halaman Tes Ditinggalkan Lebih Dari 3 Kali
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                Sesuai peraturan sistem CBT <strong>MEDTECH ARENA</strong>, ujian{' '}
+                <strong>{profile.fullName}</strong> telah dikunci otomatis karena terdeteksi keluar dari halaman tes sebanyak{' '}
+                <strong className="text-rose-700">{violationCount} kali</strong>.
+              </p>
+            </div>
+
+            {/* Real-time Cloud Backup Status */}
+            <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 space-y-1.5 text-xs">
+              <div className="font-bold text-emerald-900 flex items-center gap-2">
+                <Cloud className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>Seluruh Jawaban Tersimpan Realtime di Database Firebase</span>
+              </div>
+              <p className="text-emerald-800">
+                Progres tersimpan: <strong>{totalAnswered} dari {totalQuestions} soal</strong> sudah direkam ke server. Anda dapat melanjutkan kembali apabila kunci telah dibuka oleh Admin.
+              </p>
+            </div>
+
+            {/* Admin Confirmation Countdown */}
+            <div className="p-4 rounded-2xl bg-slate-900 text-white text-center space-y-2 border border-slate-700">
+              <div className="text-[11px] uppercase font-bold tracking-wider text-cyan-300 flex items-center justify-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 animate-spin" />
+                <span>Menunggu Konfirmasi Pembukaan Kunci oleh Admin</span>
+              </div>
+              <div className="text-4xl font-mono font-black text-amber-400">
+                {formatTime(lockWaitRemaining)}
+              </div>
+              <p className="text-[11px] text-slate-300 leading-relaxed">
+                Jika Admin membuka kunci di Dashboard Pengawas, halaman ini akan otomatis terbuka dan Anda bisa langsung melanjutkan tes. Jika tidak ada konfirmasi hingga waktu habis, jawaban akan langsung di-generate otomatis.
+              </p>
+            </div>
+
+            {/* Actions: Contact Admin or Finalize Now without Admin confirmation */}
+            <div className="space-y-3">
+              <a
+                href={`https://wa.me/${(settings.schoolPhone || '081288882511').replace(/^0/, '62').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Halo Admin/Panitia ${settings.schoolName}, saya ${profile.fullName} (${profile.schoolOrigin}, No HP: ${profile.studentPhone}) terkunci di CBT karena keluar halaman tes >3x dan memohon konfirmasi pembukaan kunci untuk melanjutkan ujian.`)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="w-full py-3.5 rounded-xl font-bold text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-500 text-white shadow-md flex items-center justify-center gap-2 transition-all"
+              >
+                <Phone className="w-4 h-4" />
+                <span>Konfirmasi ke Admin / Panitia via WhatsApp</span>
+              </a>
+
+              <button
+                type="button"
+                onClick={triggerViolationAutoGenerate}
+                className="w-full py-3 rounded-xl font-bold text-xs text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer"
+              >
+                Tidak Konfirmasi ke Admin — Generate Jawaban &amp; Akhiri Sekarang
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  // ==========================================
   // BREAK VIEW (JEDA ISTIRAHAT 2 MENIT)
   // ==========================================
   if (sessionStage === 'break') {
     return (
       <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-4">
+        {antiCheatOverlays}
         <div className="max-w-xl w-full bg-slate-850 border border-slate-700/80 rounded-3xl p-8 sm:p-12 shadow-2xl text-center space-y-8 animate-in zoom-in-95">
           {/* Milestone Badge */}
           <div className="w-20 h-20 rounded-3xl bg-cyan-500/20 text-cyan-300 border border-cyan-400/30 flex items-center justify-center mx-auto shadow-lg">
@@ -487,6 +965,7 @@ export const CbtExamView: React.FC<CbtExamViewProps> = ({
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col select-none">
+      {antiCheatOverlays}
       {/* LOCKED ALERT FLOATING TOAST */}
       {lockedAlert && (
         <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-rose-900/95 text-white border border-rose-500 px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 text-xs sm:text-sm font-bold animate-in slide-in-from-top-4">
@@ -673,6 +1152,24 @@ export const CbtExamView: React.FC<CbtExamViewProps> = ({
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Anti-cheat Violation Counter Indicator */}
+            <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold border ${
+              violationCount === 0
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                : violationCount < MAX_VIOLATIONS
+                ? 'bg-amber-50 text-amber-800 border-amber-300'
+                : 'bg-rose-50 text-rose-800 border-rose-300'
+            }`}
+              title="Sistem Pengawas Anti-Curang: Maksimal meninggalkan halaman tes 3 kali sebelum terkunci otomatis"
+            >
+              {violationCount === 0 ? (
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              ) : (
+                <ShieldAlert className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+              )}
+              <span>Mode Fokus &bull; Keluar: {violationCount}/{MAX_VIOLATIONS}</span>
+            </div>
+
             {/* Universal Font Size Zoom Control for Phone, Tablet & PC */}
             <div className="flex items-center gap-0.5 bg-white rounded-lg p-0.5 border border-slate-200 text-xs shadow-2xs">
               <span className="text-[10px] text-slate-500 font-bold px-1.5 hidden sm:inline">Ukuran Teks:</span>

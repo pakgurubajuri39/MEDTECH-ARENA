@@ -13,7 +13,9 @@ import {
   User,
   GraduationCap,
   Clock,
-  Calendar
+  Calendar,
+  AlertTriangle,
+  ShieldAlert
 } from 'lucide-react';
 import { ExamSubmission, AppSettings } from '../types';
 import { getScoreReleaseStatus } from '../utils/examAccess';
@@ -29,7 +31,10 @@ export const StudentResult: React.FC<StudentResultProps> = ({
   settings,
   onBackToHome
 }) => {
+  const isTerminatedByViolation = submission.completionStatus === 'terminated_violation';
+
   useEffect(() => {
+    if (isTerminatedByViolation) return;
     try {
       confetti({
         particleCount: 80,
@@ -37,7 +42,7 @@ export const StudentResult: React.FC<StudentResultProps> = ({
         origin: { y: 0.6 }
       });
     } catch {}
-  }, []);
+  }, [isTerminatedByViolation]);
 
   const [now, setNow] = useState<Date>(new Date());
   useEffect(() => {
@@ -53,20 +58,38 @@ export const StudentResult: React.FC<StudentResultProps> = ({
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-10 space-y-8">
-      {/* 1. HERO CONGRATULATORY CARD */}
-      <div className="bg-gradient-to-r from-slate-900 via-blue-900 to-cyan-900 rounded-3xl p-6 sm:p-10 text-white shadow-xl relative overflow-hidden">
+      {/* 1. HERO CONGRATULATORY OR TERMINATION NOTICE CARD */}
+      <div className={`rounded-3xl p-6 sm:p-10 text-white shadow-xl relative overflow-hidden ${
+        isTerminatedByViolation
+          ? 'bg-gradient-to-r from-rose-950 via-slate-900 to-amber-950 border border-rose-500/40'
+          : 'bg-gradient-to-r from-slate-900 via-blue-900 to-cyan-900'
+      }`}>
         <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="space-y-3 text-center md:text-left">
-            <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full text-xs font-bold bg-cyan-400/20 text-cyan-300 border border-cyan-400/30">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>MEDTECH ARENA &bull; Try Out Selesai &amp; Data Tersimpan di Server</span>
+            <div className={`inline-flex items-center gap-2 px-3.5 py-1 rounded-full text-xs font-bold border ${
+              isTerminatedByViolation
+                ? 'bg-rose-500/20 text-rose-200 border-rose-400/40'
+                : 'bg-cyan-400/20 text-cyan-300 border-cyan-400/30'
+            }`}>
+              {isTerminatedByViolation ? <ShieldAlert className="w-3.5 h-3.5" /> : <Sparkles className="w-3.5 h-3.5" />}
+              <span>
+                {isTerminatedByViolation
+                  ? 'MEDTECH ARENA • Ujian Terkunci & Jawaban Di-Generate Otomatis'
+                  : 'MEDTECH ARENA • Try Out Selesai & Data Tersimpan di Server'}
+              </span>
             </div>
             <h2 className="text-2xl sm:text-4xl font-extrabold tracking-tight">
-              Selamat, {submission.studentName}!
+              {isTerminatedByViolation ? `Hasil Sementara, ${submission.studentName}` : `Selamat, ${submission.studentName}!`}
             </h2>
             <p className="text-sm text-slate-300 max-w-xl leading-relaxed">
-              Anda telah menuntaskan seluruh tantangan <strong>MEDTECH ARENA</strong> (Try Out TKA SMP) bersama{' '}
-              <strong className="text-white">{settings.schoolName || 'SMA Genesis Medicare'}</strong>.
+              {isTerminatedByViolation
+                ? 'Ujian dihentikan otomatis oleh sistem pengawas karena melebihi batas meninggalkan halaman tes dan belum terdapat konfirmasi buka kunci dari Admin.'
+                : (
+                  <>
+                    Anda telah menuntaskan seluruh tantangan <strong>MEDTECH ARENA</strong> (Try Out TKA SMP) bersama{' '}
+                    <strong className="text-white">{settings.schoolName || 'SMA Genesis Medicare'}</strong>.
+                  </>
+                )}
             </p>
             <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-xs text-slate-300 pt-1">
               <span>Asal Sekolah: <strong className="text-white">{submission.schoolOrigin}</strong></span>
@@ -78,11 +101,40 @@ export const StudentResult: React.FC<StudentResultProps> = ({
           </div>
 
           <div className="w-24 h-24 rounded-3xl bg-white/10 backdrop-blur-md border border-white/20 p-4 flex flex-col items-center justify-center text-center shadow-lg shrink-0">
-            <CheckCircle2 className="w-12 h-12 text-emerald-400" />
-            <span className="text-[10px] text-cyan-200 font-bold uppercase mt-1">Terverifikasi</span>
+            {isTerminatedByViolation ? (
+              <>
+                <AlertTriangle className="w-11 h-11 text-amber-400" />
+                <span className="text-[10px] text-rose-200 font-bold uppercase mt-1">Terkunci</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="w-12 h-12 text-emerald-400" />
+                <span className="text-[10px] text-cyan-200 font-bold uppercase mt-1">Terverifikasi</span>
+              </>
+            )}
           </div>
         </div>
       </div>
+
+      {/* VIOLATION TERMINATION REMARK BANNER */}
+      {isTerminatedByViolation && (
+        <div className="bg-rose-50 border-2 border-rose-300 rounded-3xl p-6 shadow-sm flex flex-col sm:flex-row items-start gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0 border border-rose-200">
+            <ShieldAlert className="w-6 h-6" />
+          </div>
+          <div className="space-y-1.5">
+            <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold uppercase bg-rose-600 text-white">
+              <span>Keterangan Sistem Pengawas</span>
+            </div>
+            <h3 className="text-base sm:text-lg font-black text-rose-950">
+              {submission.terminationReason || 'Tidak dapat menyelesaikan tes karena keluar dari halaman tes sebanyak 3 kali'}
+            </h3>
+            <p className="text-xs sm:text-sm text-rose-900 leading-relaxed">
+              Karena tidak ada konfirmasi pembukaan kunci ke Admin hingga batas waktu berakhir, seluruh jawaban yang sempat Anda kerjakan telah langsung di-generate dan disimpan secara realtime ke database panitia (tercatat keluar halaman tes: <strong>{submission.violationCount || 3} kali</strong>).
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* 2. NILAI MASING-MASING MAPEL ATAU STATUS PENGUMUMAN NILAI */}
       {scoreStatus.isReleased ? (
